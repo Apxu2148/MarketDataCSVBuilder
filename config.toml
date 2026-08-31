@@ -1,0 +1,56 @@
+[general]
+history_closed_bars = 1200
+compact_closed_bars = 100
+liquidity_lookback_closed_bars = 30
+output_dir = "output"
+log_level = "INFO"
+
+[cache]
+enabled = true
+directory = "data/cache"
+ttl_hours = 12
+
+[http]
+timeout_seconds = 30
+max_retries = 3
+backoff_seconds = 0.8
+max_backoff_seconds = 5
+
+[moex]
+enabled = true
+base_url = "https://iss.moex.com/iss"
+language = "en"
+max_workers = 8
+page_size = 500
+threshold_rub = 1_000_000_000
+shares_enabled = true
+term_futures_enabled = true
+perpetual_futures_enabled = true
+funds_enabled = true
+bonds_enabled = true
+perpetual_name_markers = ["perpetual", "вечн", "бессроч"]
+perpetual_symbol_suffixes = ["F"]
+
+[bybit]
+enabled = false
+base_url = "https://api.bybit.com"
+fallback_base_urls = ["https://api.bytick.com"]
+max_workers = 8
+page_size = 1000
+threshold_usd = 10_000_000
+linear_perpetual_enabled = true
+linear_futures_enabled = false
+spot_enabled = false
+
+[hyperliquid]
+enabled = false
+base_url = "https://api.hyperliquid.xyz"
+info_path = "/info"
+max_workers = 6
+threshold_usd = 10_000_000
+discover_all_perp_dexes = true
+include_delisted = false
+perp_dexes = []
+exclude_perp_dexes = []
+rate_limit_safety_fraction = 0.80
+rate_limit_default_cooldown_seconds = 60
