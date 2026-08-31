@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
 from market_data_csv_builder.config import AppConfig, BybitConfig, HyperliquidConfig, MoexConfig
+from market_data_csv_builder.liquidity import calculate_average_turnover
 from market_data_csv_builder.models import Instrument
 from market_data_csv_builder.sources.bybit import BybitSource
 from market_data_csv_builder.sources.hyperliquid import HyperliquidSource
-from market_data_csv_builder.sources.moex import MoexSource, _has_more
+from market_data_csv_builder.sources.moex import MOSCOW, MoexSource, _has_more
 
 
 class FakeHttp:
@@ -66,6 +67,101 @@ def test_moex_cursor_controls_pagination_even_when_server_page_is_smaller() -> N
     payload = {"securities.cursor": {"columns": ["INDEX", "TOTAL", "PAGESIZE"], "data": [[0, 250, 100]]}}
     assert _has_more(payload, "securities", 0, 100, 500)
     assert not _has_more(payload, "securities", 200, 50, 500)
+
+
+def test_moex_securities_discovery_is_one_request_without_pagination(tmp_path: Path) -> None:
+    source = MoexSource(AppConfig(), tmp_path, no_cache=True)
+    source.http = FakeHttp({"/futures/markets/forts/securities.json": _table([], ["SECID"])})
+
+    assert source._fetch_securities("futures", "forts") == []
+    assert len(source.http.calls) == 1
+    assert "start" not in source.http.calls[0][1]
+    assert "limit" not in source.http.calls[0][1]
+    assert source.http.calls[0][1]["iss.only"] == "securities"
+
+
+def test_moex_forts_uses_historical_value_and_current_valtoday(tmp_path: Path) -> None:
+    source = MoexSource(AppConfig(moex=MoexConfig(page_size=500)), tmp_path, no_cache=True)
+    today = datetime.now(MOSCOW).date()
+    first_closed = today - timedelta(days=30)
+    closed_dates = [first_closed + timedelta(days=index) for index in range(30)]
+    candle_rows = [
+        [value.isoformat(), 100 + index, 102 + index, 99 + index, 101 + index, 10 + index, 0]
+        for index, value in enumerate(closed_dates)
+    ]
+    candle_rows.append([today.isoformat(), 130, 132, 129, 131, 40, 0])
+    history_rows = [
+        [value.isoformat(), "SiU6", "RFUD", (index + 1) * 1_000_000]
+        for index, value in enumerate(closed_dates)
+    ]
+    source.http = FakeHttp(
+        {
+            "/futures/markets/forts/securities/SiU6/candles.json": {
+                "candles": {
+                    "columns": ["begin", "open", "high", "low", "close", "volume", "value"],
+                    "data": candle_rows,
+                }
+            },
+            "/history/engines/futures/markets/forts/securities/SiU6.json": {
+                "history": {
+                    "columns": ["TRADEDATE", "SECID", "BOARDID", "VALUE"],
+                    "data": history_rows,
+                }
+            },
+            "/futures/markets/forts/securities/SiU6.json": {
+                "marketdata": {
+                    "columns": ["SECID", "BOARDID", "VALTODAY"],
+                    "data": [["SiU6", "RFUD", 7_500_000]],
+                }
+            },
+        }
+    )
+    instrument = Instrument(
+        "moex", "futures", "SiU6", "Si future", "TermFuture",
+        quote_currency="RUB", api_engine="futures", api_market="forts", lot_size=999,
+    )
+
+    as_of = datetime.combine(today, time(12), tzinfo=MOSCOW).astimezone(UTC)
+    candles = source.fetch_daily_candles(instrument, 30, as_of)
+
+    assert len(candles) == 31
+    assert candles[0].turnover == 1_000_000
+    assert candles[0].volume == 10
+    assert candles[-2].turnover == 30_000_000
+    assert candles[-1].turnover == 7_500_000
+    assert candles[-1].is_closed is False
+    assert candles[-1].provisional is True
+    assert calculate_average_turnover(candles, 30).average_turnover == 15_500_000
+    assert all(item.turnover_currency == "RUB" for item in candles)
+
+
+def test_moex_forts_does_not_synthesize_turnover_when_history_value_is_missing(tmp_path: Path) -> None:
+    source = MoexSource(AppConfig(), tmp_path, no_cache=True)
+    source.http = FakeHttp(
+        {
+            "/futures/markets/forts/securities/RIU6/candles.json": {
+                "candles": {
+                    "columns": ["begin", "open", "high", "low", "close", "volume", "value"],
+                    "data": [["2026-01-01", 100, 110, 90, 105, 10, 0]],
+                }
+            },
+            "/history/engines/futures/markets/forts/securities/RIU6.json": {
+                "history": {
+                    "columns": ["TRADEDATE", "SECID", "BOARDID", "VALUE"],
+                    "data": [],
+                }
+            },
+        }
+    )
+    instrument = Instrument(
+        "moex", "futures", "RIU6", "RI future", "TermFuture",
+        quote_currency="RUB", api_engine="futures", api_market="forts", lot_size=10,
+    )
+
+    candles = source.fetch_daily_candles(instrument, 30, datetime(2026, 1, 2, 12, tzinfo=UTC))
+
+    assert len(candles) == 1
+    assert candles[0].turnover is None
 
 
 def test_bybit_metadata_types_usdt_usdc_and_time_pagination(tmp_path: Path) -> None:

@@ -26,13 +26,11 @@ threshold_rub = 1_000_000_000
 shares_enabled = true
 term_futures_enabled = true
 perpetual_futures_enabled = true
-funds_enabled = true
-bonds_enabled = true
-perpetual_name_markers = ["perpetual", "вечн", "бессроч"]
-perpetual_symbol_suffixes = ["F"]
+funds_enabled = false
+bonds_enabled = false
 
 [bybit]
-enabled = false
+enabled = true
 base_url = "https://api.bybit.com"
 fallback_base_urls = ["https://api.bytick.com"]
 max_workers = 8
@@ -43,7 +41,7 @@ linear_futures_enabled = false
 spot_enabled = false
 
 [hyperliquid]
-enabled = false
+enabled = true
 base_url = "https://api.hyperliquid.xyz"
 info_path = "/info"
 max_workers = 6

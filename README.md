@@ -57,6 +57,8 @@ A complete build is first written to `_building`. Publication rotates the old `c
 
 Every instrument produces two CSVs. Identity, timestamp, OHLC, raw `volume`, source-specific quote/notional `turnover`, actual `turnover_currency`, `is_closed`, `provisional`, and all 29 feature columns are present. Structural values are compact JSON inside a CSV cell. Insufficient lookback is an empty cell. `catalog.csv` contains READY datasets only; `universe_status.csv` contains the entire considered universe, including below-threshold and failed rows. The snapshot's own `README_APX_MARKETS.md` is the consumer contract.
 
+MOEX FORTS uses the candle endpoint only for daily OHLC and raw volume. Closed-day RUB turnover and the 30-closed-bar liquidity filter use historical trading-results `VALUE`, matched by trading date. The current unfinished day's turnover uses marketdata `VALTODAY` when available; it remains provisional, and FORTS never substitutes `close * volume * lot_size`. Existing MOEX shares/bonds, Bybit, and Hyperliquid turnover rules are unchanged.
+
 ## Tests
 
 ```bat
