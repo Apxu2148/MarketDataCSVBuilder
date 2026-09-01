@@ -46,6 +46,7 @@ output/
     full/<source tree>/<symbol>.csv
     compact/<source tree>/<symbol>.csv
     catalog.csv
+    latest_snapshot.csv
     universe_status.csv
     README_APX_MARKETS.md
     run_report.json
@@ -55,7 +56,9 @@ output/
 
 A complete build is first written to `_building`. Publication rotates the old `current` to `previous` and promotes the complete build. A failed/empty build is never promoted. Filenames contain no run timestamp and unsafe Windows symbols are mapped deterministically; the original API symbol remains in CSV and catalog rows.
 
-Every instrument produces two CSVs. Identity, timestamp, OHLC, raw `volume`, source-specific quote/notional `turnover`, actual `turnover_currency`, `is_closed`, `provisional`, and all 29 feature columns are present. Structural values are compact JSON inside a CSV cell. Insufficient lookback is an empty cell. `catalog.csv` contains READY datasets only; `universe_status.csv` contains the entire considered universe, including below-threshold and failed rows. The snapshot's own `README_APX_MARKETS.md` is the consumer contract.
+Every instrument produces two CSVs. Identity, timestamp, OHLC, raw `volume`, source-specific quote/notional `turnover`, actual `turnover_currency`, `is_closed`, `provisional`, and all 29 feature columns are present. Structural values are compact JSON inside a CSV cell. Insufficient lookback is an empty cell. `catalog.csv` is the READY inventory; `latest_snapshot.csv` is a derived one-row-per-READY-series screening view; `universe_status.csv` contains the entire considered universe, including below-threshold and failed rows. The snapshot's own `README_APX_MARKETS.md` is the consumer contract.
+
+For downstream use, read `README_APX_MARKETS.md`, then `catalog.csv` and `latest_snapshot.csv`; screen the universe in `latest_snapshot.csv`; open `compact/` only for selected candidates; open `full/` only when long history is needed; and consult `universe_status.csv` for diagnostics. Do not load every instrument CSV at once. The 29 screening features and the 1/5/20-day decimal returns refer to the last fully closed daily candle. A current price, when present, is separate and provisional. Empty feature/return cells can mean insufficient history; short-history READY instruments remain in the view.
 
 MOEX FORTS uses the candle endpoint only for daily OHLC and raw volume. Closed-day RUB turnover and the 30-closed-bar liquidity filter use historical trading-results `VALUE`, matched by trading date. The current unfinished day's turnover uses marketdata `VALTODAY` when available; it remains provisional, and FORTS never substitutes `close * volume * lot_size`. Existing MOEX shares/bonds, Bybit, and Hyperliquid turnover rules are unchanged.
 

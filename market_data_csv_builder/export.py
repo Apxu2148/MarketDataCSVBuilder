@@ -55,15 +55,45 @@ CATALOG_COLUMNS = (
     "status",
 )
 
+LATEST_SNAPSHOT_BASE_COLUMNS = (
+    "snapshot_id",
+    "generated_at",
+    "source",
+    "market",
+    "symbol",
+    "instrument_name",
+    "contract_type",
+    "dex",
+    "quote_currency",
+    "avg_daily_turnover",
+    "turnover_currency",
+    "closed_bars_available",
+    "last_closed_timestamp",
+    "last_closed_close",
+    "current_timestamp",
+    "current_close",
+    "current_candle_present",
+    "return_1d",
+    "return_5d",
+    "return_20d",
+    "has_100_closed_bars",
+    "has_1000_closed_bars",
+    "full_path",
+    "compact_path",
+)
+LATEST_SNAPSHOT_COLUMNS = (*LATEST_SNAPSHOT_BASE_COLUMNS, *FEATURE_IDS)
+
 
 class SnapshotWriter:
     def __init__(self, root: Path, output_dir: str) -> None:
         self.output_root = (root / output_dir).resolve()
         self.building = self.output_root / "_building"
+        self._screening_values: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
     def begin(self) -> Path:
         if self.building.exists():
             shutil.rmtree(self.building)
+        self._screening_values.clear()
         (self.building / "full").mkdir(parents=True)
         (self.building / "compact").mkdir(parents=True)
         return self.building
@@ -74,12 +104,14 @@ class SnapshotWriter:
         frame: pd.DataFrame,
         compact_closed_bars: int,
     ) -> tuple[str, str]:
+        screening_values = latest_screening_values(frame)
         relative = dataset_relative_path(instrument)
         full_relative = Path("full") / relative
         compact_relative = Path("compact") / relative
         self._write_csv(self.building / full_relative, frame)
         compact = slice_closed_and_current(frame, compact_closed_bars)
         self._write_csv(self.building / compact_relative, compact)
+        self._screening_values[instrument.key] = screening_values
         return full_relative.as_posix(), compact_relative.as_posix()
 
     def finalize_metadata(
@@ -92,6 +124,7 @@ class SnapshotWriter:
         report: dict[str, Any],
     ) -> None:
         catalog_rows: list[dict[str, Any]] = []
+        latest_snapshot_rows: list[dict[str, Any]] = []
         for item in ready:
             instrument = item.instrument
             catalog_rows.append(
@@ -116,7 +149,31 @@ class SnapshotWriter:
                     "status": "READY",
                 }
             )
+            screening_values = self._screening_values.get(instrument.key)
+            if screening_values is None:
+                raise ValueError(f"Missing successfully exported frame for {instrument.key}")
+            if screening_values["closed_bars_available"] != item.closed_bars_available:
+                raise ValueError(f"Closed-bar count changed after export for {instrument.key}")
+            latest_snapshot_rows.append(
+                {
+                    "snapshot_id": snapshot_id,
+                    "generated_at": generated_at,
+                    "source": instrument.source,
+                    "market": instrument.market,
+                    "symbol": instrument.symbol,
+                    "instrument_name": instrument.instrument_name,
+                    "contract_type": instrument.contract_type,
+                    "dex": instrument.dex,
+                    "quote_currency": instrument.quote_currency,
+                    "avg_daily_turnover": item.average_turnover,
+                    "turnover_currency": item.turnover_currency,
+                    **screening_values,
+                    "full_path": item.full_path,
+                    "compact_path": item.compact_path,
+                }
+            )
         _write_dict_csv(self.building / "catalog.csv", catalog_rows, CATALOG_COLUMNS)
+        _write_latest_snapshot_csv(self.building / "latest_snapshot.csv", latest_snapshot_rows)
         _write_dict_csv(
             self.building / "universe_status.csv",
             [item.as_dict() for item in universe],
@@ -173,6 +230,37 @@ def slice_closed_and_current(frame: pd.DataFrame, closed_bars: int) -> pd.DataFr
     return pd.concat([closed, unfinished]).sort_values("timestamp").reset_index(drop=True)
 
 
+def latest_screening_values(frame: pd.DataFrame) -> dict[str, Any]:
+    """Extract the source-neutral screening state from a calculated candle frame."""
+    closed = frame.loc[frame["is_closed"]].sort_values("timestamp").reset_index(drop=True)
+    if closed.empty:
+        raise ValueError("A READY dataset must contain at least one closed candle")
+    last_closed = closed.iloc[-1]
+    current = frame.loc[~frame["is_closed"]].sort_values("timestamp").tail(1)
+    current_present = not current.empty
+    values: dict[str, Any] = {
+        "closed_bars_available": len(closed),
+        "last_closed_timestamp": last_closed["timestamp"],
+        "last_closed_close": last_closed["close"],
+        "current_timestamp": current.iloc[0]["timestamp"] if current_present else None,
+        "current_close": current.iloc[0]["close"] if current_present else None,
+        "current_candle_present": _bool_text(current_present),
+        "return_1d": _closed_bar_return(closed, 1),
+        "return_5d": _closed_bar_return(closed, 5),
+        "return_20d": _closed_bar_return(closed, 20),
+        "has_100_closed_bars": _bool_text(len(closed) >= 100),
+        "has_1000_closed_bars": _bool_text(len(closed) >= 1000),
+    }
+    values.update({feature_id: last_closed[feature_id] for feature_id in FEATURE_IDS})
+    return values
+
+
+def _closed_bar_return(closed: pd.DataFrame, days: int) -> float | None:
+    if len(closed) <= days:
+        return None
+    return float(closed.iloc[-1]["close"]) / float(closed.iloc[-days - 1]["close"]) - 1.0
+
+
 def _structural_json(value: Any) -> str:
     if value is None or (isinstance(value, float) and pd.isna(value)):
         return ""
@@ -191,6 +279,29 @@ def _write_dict_csv(path: Path, rows: list[dict[str, Any]], columns: tuple[str, 
         writer.writerows(rows)
 
 
+def _write_latest_snapshot_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    output = pd.DataFrame(rows, columns=LATEST_SNAPSHOT_COLUMNS)
+    for column in ("last_closed_timestamp", "current_timestamp"):
+        output[column] = output[column].map(_timestamp_text)
+    for feature_id in STRUCTURAL_FEATURE_IDS:
+        output[feature_id] = output[feature_id].map(_structural_json)
+    output.to_csv(
+        path,
+        index=False,
+        encoding="utf-8",
+        lineterminator="\n",
+        na_rep="",
+        float_format="%.15g",
+        quoting=csv.QUOTE_MINIMAL,
+    )
+
+
+def _timestamp_text(value: Any) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    return value.isoformat()
+
+
 def snapshot_readme(snapshot_id: str, generated_at: str) -> str:
     features = "\n".join(f"- `{feature_id}`" for feature_id in FEATURE_IDS)
     return f"""# APX Markets daily dataset snapshot
@@ -203,7 +314,20 @@ Each CSV is one 1D time series and each row is one candle. Identity columns are 
 
 Turnover is not interchangeable with volume. MOEX shares and bonds use candle `value` in RUB when available and the Portfolio Builder fallback otherwise. MOEX FORTS keeps candle OHLCV but joins closed-day RUB turnover from historical trading-results `VALUE`; today's provisional candle uses marketdata `VALTODAY` when available and never synthesizes turnover from `close*volume*lot_size`. Bybit uses V5 quote turnover and keeps the actual quote coin (including USDT or USDC). Hyperliquid uses candle quote/notional value when supplied and documented `close*volume` fallback, reported as USDC/USD-equivalent.
 
-`catalog.csv` lists only successfully generated current series (`status=READY`) and their relative paths. `universe_status.csv` lists every instrument considered, including liquidity rejections and isolated technical failures. Absence from `catalog.csv` therefore does not imply delisting: inspect `universe_status.csv` and `run_report.json`.
+`catalog.csv` is the canonical inventory of successfully generated current series (`status=READY`) and their relative paths. `latest_snapshot.csv` is a compact derived screening view with exactly one row per READY series. Its 29 features and 1/5/20-day returns use only the last fully closed candle; `current_timestamp` and `current_close`, when present, describe the separate provisional candle. Empty feature or return cells mean insufficient history. `has_100_closed_bars` and `has_1000_closed_bars` expose the available history depth.
+
+## Recommended downstream workflow
+
+1. Read `README_APX_MARKETS.md`.
+2. Read `catalog.csv` and `latest_snapshot.csv`.
+3. Screen the current universe in `latest_snapshot.csv`.
+4. Load `compact/` CSV only for selected candidates.
+5. Load `full/` CSV only when long history is necessary.
+6. Use `universe_status.csv` only for diagnostics.
+
+Do not load every instrument CSV at once for initial screening.
+
+`universe_status.csv` lists every instrument considered, including liquidity rejections and isolated technical failures. Absence from `catalog.csv` therefore does not imply delisting: inspect `universe_status.csv` and `run_report.json`.
 
 The universe is rediscovered from enabled MOEX categories, Bybit V5 metadata contract types, and the default plus discovered Hyperliquid perp DEXes on every run. Snapshot freshness is given by `generated_at` in `catalog.csv` and `started_at`/`completed_at` in `run_report.json`.
 

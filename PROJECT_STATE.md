@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-08-31 (Europe/Moscow).
+Last updated: 2026-09-01 (Europe/Moscow).
 
 ## Implemented
 
@@ -11,6 +11,7 @@ Last updated: 2026-08-31 (Europe/Moscow).
 - MOEX FORTS preserves candle OHLCV while joining closed-day RUB turnover from historical trading-results `VALUE` by trading date. The current Moscow day's provisional candle uses `VALTODAY` when available; FORTS has no synthetic `close * volume * lot_size` turnover fallback. Securities discovery remains a single non-paginated request.
 - Stateless left-looking calculation of all 29 MarketDataVault features, including canonical population-sigma Bollinger, strict pattern boundaries, and 12 structural list features with deterministic compact JSON.
 - Full/compact per-series CSV, safe Windows filenames, catalog/status/report/snapshot README, partial instrument failure isolation, and `_building -> current/previous` rotation. An all-failed run keeps diagnostic metadata in `_building` and is not promoted.
+- Each successful build also publishes source-neutral `latest_snapshot.csv`: one row per READY catalog series, identity/paths, closed-history depth, closed-bar 1/5/20-day returns, an explicitly separate provisional current price, and the canonical 29 features from the last fully closed candle.
 - Flushed console progress: source/stage start and completion, processed/total, counters, elapsed time, 10-second heartbeat while futures are pending, and immediate per-symbol warnings.
 - Graceful Ctrl+C cancellation: one SIGINT sets a shared token and prints immediately; bounded executors stop submission and cancel queued futures; HTTP retry/backoff and feature loops stop cooperatively; incomplete `_building` is not promoted; CLI/batch preserve cancellation code 130 without the Windows Y/N batch prompt.
 - HTTP cache reads explicitly import the `time` module used for TTL checks; a regression test exercises a fresh cache hit so missing runtime dependencies in this path fail offline.
@@ -19,8 +20,8 @@ Last updated: 2026-08-31 (Europe/Moscow).
 ## Offline tests
 
 - Command: `venv\Scripts\python.exe -m pytest -q`
-- Result: **50 passed, 3 live deselected**, exit 0, 6.51 s.
-- Covered MOEX/Bybit/Hyperliquid normalization; MOEX FORTS historical `VALUE` overriding zero candle value, 30-closed-day liquidity, current `VALTODAY`, no synthetic FORTS turnover fallback, and one-request securities discovery; Bybit USDT, USDC, LinearPerpetual, LinearFutures, Spot pagination contract and backward time pagination; MOEX categories/cursor; Hyperliquid multi-DEX/delisted behavior; liquidity/current exclusion; all 29 features; insufficient history; anti-look-ahead; structural lifecycle/serialization; safe filenames; current/provisional flags; full/compact slicing; rotation; all-failed non-publication; partial download/feature failures; real Python SIGINT dispatch; bounded cancellation; queued-future cancellation; cancellation-aware HTTP retry suppression; a fresh HTTP cache hit through the TTL check that previously raised `NameError`; documented Hyperliquid request-weight estimation; rolling weighted-budget waits; even pacing; global 429 cooldown; nonzero `Retry-After`; cancellation during limiter wait; and console/on-disk rate-limit metrics.
+- Result: **57 passed, 3 live deselected**, exit 0, 7.14 s.
+- Covered MOEX/Bybit/Hyperliquid normalization; MOEX FORTS historical `VALUE` overriding zero candle value, 30-closed-day liquidity, current `VALTODAY`, no synthetic FORTS turnover fallback, and one-request securities discovery; Bybit USDT, USDC, LinearPerpetual, LinearFutures, Spot pagination contract and backward time pagination; MOEX categories/cursor; Hyperliquid multi-DEX/delisted behavior; liquidity/current exclusion; all 29 features; insufficient history; anti-look-ahead; structural lifecycle/serialization; safe filenames; current/provisional flags; full/compact slicing; rotation; all-failed non-publication; partial download/feature failures; `latest_snapshot.csv` READY/catalog parity and source-neutral identity/path mapping; last-closed versus provisional feature selection; closed-bar returns; 99/100/999/1000 history flags; three-bar READY history; absent-current empty fields; preservation of published aggregate data on cancellation; real Python SIGINT dispatch; bounded cancellation; queued-future cancellation; cancellation-aware HTTP retry suppression; a fresh HTTP cache hit through the TTL check that previously raised `NameError`; documented Hyperliquid request-weight estimation; rolling weighted-budget waits; even pacing; global 429 cooldown; nonzero `Retry-After`; cancellation during limiter wait; and console/on-disk rate-limit metrics.
 
 ## Live checks
 

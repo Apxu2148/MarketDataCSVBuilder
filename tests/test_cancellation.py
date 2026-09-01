@@ -127,6 +127,7 @@ def test_pipeline_cancellation_keeps_current_and_does_not_queue_universe(tmp_pat
     current = tmp_path / "output/current"
     current.mkdir(parents=True)
     (current / "marker.txt").write_text("published", encoding="utf-8")
+    (current / "latest_snapshot.csv").write_text("old snapshot\n", encoding="utf-8")
     token = CancellationToken()
     source = BlockingSource(token)
     config = AppConfig(
@@ -156,6 +157,7 @@ def test_pipeline_cancellation_keeps_current_and_does_not_queue_universe(tmp_pat
         timer.cancel()
     assert 1 <= source.started <= source.max_workers
     assert (current / "marker.txt").read_text(encoding="utf-8") == "published"
+    assert (current / "latest_snapshot.csv").read_text(encoding="utf-8") == "old snapshot\n"
     assert (tmp_path / "output/_building").exists()
 
 

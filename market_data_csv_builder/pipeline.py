@@ -434,7 +434,8 @@ def run_pipeline(
             **counts,
             "failed": counts["download_failed"] + counts["feature_failed"] + counts["export_failed"],
             "dataset_csv_files_created": len(ready) * 2,
-            "total_csv_files_created": len(ready) * 2 + 2,
+            "latest_snapshot_rows": len(ready),
+            "total_csv_files_created": len(ready) * 2 + 3,
         },
         "elapsed_seconds": {
             "discovery": sum(item["elapsed_discovery_seconds"] for item in source_metrics.values()),
