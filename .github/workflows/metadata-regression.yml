@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - metadata-underlying-expiry-liquidity-20260912
+  pull_request:
+    branches:
+      - main
 
 jobs:
   test:
