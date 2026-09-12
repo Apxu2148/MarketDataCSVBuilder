@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-09-01 (Europe/Moscow).
+Last updated: 2026-09-12 (Europe/Moscow).
 
 ## Implemented
 
@@ -12,6 +12,7 @@ Last updated: 2026-09-01 (Europe/Moscow).
 - Stateless left-looking calculation of all 29 MarketDataVault features, including canonical population-sigma Bollinger, strict pattern boundaries, and 12 structural list features with deterministic compact JSON.
 - Full/compact per-series CSV, safe Windows filenames, catalog/status/report/snapshot README, partial instrument failure isolation, and `_building -> current/previous` rotation. An all-failed run keeps diagnostic metadata in `_building` and is not promoted.
 - Each successful build also publishes source-neutral `latest_snapshot.csv`: one row per READY catalog series, identity/paths, closed-history depth, closed-bar 1/5/20-day returns, an explicitly separate provisional current price, and the canonical 29 features from the last fully closed candle.
+- `catalog.csv` and `latest_snapshot.csv` now append advisory `source_underlying_symbol`, `underlying_symbol`, `contract_expiry`, and `underlying_liquidity_rank`. The extension preserves all legacy column positions and does not change READY eligibility. MOEX preserves source `ASSETCODE`, normalizes the APX regression families `GAZR`→`GAZP`, `SBRF`→`SBER`, `MIX`→`IMOEX`, and reads `LASTTRADEDATE`; Bybit preserves `baseCoin` and dated-future `deliveryTime`. Liquidity rank is deterministic within source/market/underlying READY families and is intended for roll assistance only, not canonical mapping authority.
 - Flushed console progress: source/stage start and completion, processed/total, counters, elapsed time, 10-second heartbeat while futures are pending, and immediate per-symbol warnings.
 - Graceful Ctrl+C cancellation: one SIGINT sets a shared token and prints immediately; bounded executors stop submission and cancel queued futures; HTTP retry/backoff and feature loops stop cooperatively; incomplete `_building` is not promoted; CLI/batch preserve cancellation code 130 without the Windows Y/N batch prompt.
 - HTTP cache reads explicitly import the `time` module used for TTL checks; a regression test exercises a fresh cache hit so missing runtime dependencies in this path fail offline.
@@ -19,9 +20,10 @@ Last updated: 2026-09-01 (Europe/Moscow).
 
 ## Offline tests
 
-- Command: `venv\Scripts\python.exe -m pytest -q`
-- Result: **57 passed, 3 live deselected**, exit 0, 7.14 s.
-- Covered MOEX/Bybit/Hyperliquid normalization; MOEX FORTS historical `VALUE` overriding zero candle value, 30-closed-day liquidity, current `VALTODAY`, no synthetic FORTS turnover fallback, and one-request securities discovery; Bybit USDT, USDC, LinearPerpetual, LinearFutures, Spot pagination contract and backward time pagination; MOEX categories/cursor; Hyperliquid multi-DEX/delisted behavior; liquidity/current exclusion; all 29 features; insufficient history; anti-look-ahead; structural lifecycle/serialization; safe filenames; current/provisional flags; full/compact slicing; rotation; all-failed non-publication; partial download/feature failures; `latest_snapshot.csv` READY/catalog parity and source-neutral identity/path mapping; last-closed versus provisional feature selection; closed-bar returns; 99/100/999/1000 history flags; three-bar READY history; absent-current empty fields; preservation of published aggregate data on cancellation; real Python SIGINT dispatch; bounded cancellation; queued-future cancellation; cancellation-aware HTTP retry suppression; a fresh HTTP cache hit through the TTL check that previously raised `NameError`; documented Hyperliquid request-weight estimation; rolling weighted-budget waits; even pacing; global 429 cooldown; nonzero `Retry-After`; cancellation during limiter wait; and console/on-disk rate-limit metrics.
+- Latest branch acceptance: GitHub Actions / Python 3.11, `python -m pytest -q`.
+- Result: **62 passed, 3 deselected**, exit 0, 5.96 s on 2026-09-12.
+- New mapping regression coverage verifies append-only `catalog.csv` / `latest_snapshot.csv` schemas, unchanged `run_report.json` semantics, unchanged READY eligibility, MOEX source/native + normalized underlying and expiry metadata, Bybit underlying + delivery-date metadata, GAZP↔GZU6, SBER↔SRU6, IMOEX↔MXU6, and the MXU6↔MXZ6 roll family with deterministic liquidity ranks 1/2.
+- Existing coverage remains green for MOEX/Bybit/Hyperliquid normalization; MOEX FORTS historical `VALUE` overriding zero candle value, 30-closed-day liquidity, current `VALTODAY`, no synthetic FORTS turnover fallback, and one-request securities discovery; Bybit USDT, USDC, LinearPerpetual, LinearFutures, Spot pagination contract and backward time pagination; MOEX categories/cursor; Hyperliquid multi-DEX/delisted behavior; liquidity/current exclusion; all 29 features; insufficient history; anti-look-ahead; structural lifecycle/serialization; safe filenames; current/provisional flags; full/compact slicing; rotation; all-failed non-publication; partial download/feature failures; `latest_snapshot.csv` READY/catalog parity and source-neutral identity/path mapping; last-closed versus provisional feature selection; closed-bar returns; 99/100/999/1000 history flags; three-bar READY history; absent-current empty fields; preservation of published aggregate data on cancellation; real Python SIGINT dispatch; bounded cancellation; queued-future cancellation; cancellation-aware HTTP retry suppression; a fresh HTTP cache hit through the TTL check; documented Hyperliquid request-weight estimation; rolling weighted-budget waits; even pacing; global 429 cooldown; nonzero `Retry-After`; cancellation during limiter wait; and console/on-disk rate-limit metrics.
 
 ## Live checks
 
@@ -64,14 +66,14 @@ Last updated: 2026-09-01 (Europe/Moscow).
 
 - Live client attempted through configured local proxy and with proxy bypass.
 - Result: BLOCKED by TLS handshake timeout to `iss.moex.com` in this execution environment after bounded retries.
-- Offline normalization, category switching, candle/history pagination, historical FORTS turnover, current `VALTODAY`, one-request discovery and current-candle semantics pass.
+- Offline normalization, category switching, candle/history pagination, historical FORTS turnover, current `VALTODAY`, one-request discovery, mapping metadata, expiry handling and current-candle semantics pass.
 
 ### Bybit
 
 - Live client attempted against both official mainnet endpoints `api.bybit.com` and `api.bytick.com` with proxy bypass.
 - Result: BLOCKED by HTTP 403 from both endpoints for this execution environment/network location.
 - An independent web transport could read current BTCUSDT `LinearPerpetual` metadata, confirming the endpoint contract, but this is not counted as a program live PASS.
-- Offline fixtures verify USDT + USDC, current candle, quote turnover, LinearPerpetual, LinearFutures, no underlying-class filter, cursor-based instrument discovery and time-based kline pagination.
+- Offline fixtures verify USDT + USDC, current candle, quote turnover, LinearPerpetual, LinearFutures, underlying/base-coin metadata, dated-future delivery date, no underlying-class filter, cursor-based instrument discovery and time-based kline pagination.
 
 ## Performance
 
@@ -91,14 +93,8 @@ Last updated: 2026-09-01 (Europe/Moscow).
 - MOEX candles dated today are conservatively provisional for the entire Moscow calendar day because ISS daily candles do not expose a universal per-row finality flag.
 - Hyperliquid uses candle quote value when present and the reference-project `close * volume` documented fallback otherwise.
 - A deterministic `--limit` is applied after source discovery per source; it is intended for bounded smoke/performance work, not representative sampling.
+- `underlying_symbol` is intentionally an advisory normalization hint, not a canonical economic-asset identifier. Downstream consumers must retain their own fail-closed mapping registry and treat unknown/new venue families as unresolved rather than trusting the hint silently.
 
 ## Recommended next test
 
-On a network where both services are reachable, run:
-
-```bat
-run.bat --source moex --limit 25 --no-cache
-run.bat --source bybit --limit 25 --no-cache
-```
-
-Then confirm at least one READY series per source, Bybit USDT and USDC rows in `catalog.csv`, current provisional rows, and update this file with the live counts/timings. A subsequent unbounded all-source run is the final production-scale acceptance test.
+On the local Windows environment where the production snapshot is generated, run the ordinary builder once after deploying the accepted metadata change, then verify the new columns against a real current `catalog.csv` / `latest_snapshot.csv`. Specifically confirm GZU6→GAZP, SRU6→SBER, MXU6/MXZ6→IMOEX, non-empty dated expiries, MXU6 liquidity rank ahead of MXZ6, exact READY/catalog/latest-snapshot parity, and unchanged run-report counts. Network live checks remain optional diagnostics and do not redefine mapping authority.
