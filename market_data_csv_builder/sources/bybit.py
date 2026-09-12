@@ -58,6 +58,7 @@ class BybitSource:
                 symbol = str(item.get("symbol") or "").strip()
                 if not symbol:
                     continue
+                base_coin = str(item.get("baseCoin") or "").strip()
                 result.append(
                     Instrument(
                         source=self.name,
@@ -69,7 +70,16 @@ class BybitSource:
                         source_symbol=symbol,
                         api_engine="linear",
                         api_market="linear",
-                        metadata={"base_coin": item.get("baseCoin"), "settle_coin": item.get("settleCoin")},
+                        metadata={
+                            "base_coin": base_coin,
+                            "settle_coin": item.get("settleCoin"),
+                            "underlying_symbol": base_coin or symbol,
+                            "contract_expiry": (
+                                _delivery_date(item.get("deliveryTime"))
+                                if contract_type == "LinearFutures"
+                                else ""
+                            ),
+                        },
                     )
                 )
         if self.config.spot_enabled:
@@ -79,6 +89,7 @@ class BybitSource:
                     continue
                 symbol = str(item.get("symbol") or "").strip()
                 if symbol:
+                    base_coin = str(item.get("baseCoin") or "").strip()
                     result.append(
                         Instrument(
                             source=self.name,
@@ -90,6 +101,11 @@ class BybitSource:
                             source_symbol=symbol,
                             api_engine="spot",
                             api_market="spot",
+                            metadata={
+                                "base_coin": base_coin,
+                                "underlying_symbol": base_coin or symbol,
+                                "contract_expiry": "",
+                            },
                         )
                     )
         unique = {item.key: item for item in result}
@@ -209,6 +225,19 @@ def _result(payload: Any) -> dict[str, Any]:
     if not isinstance(result, dict):
         raise ValueError("Bybit response is missing result object")
     return result
+
+
+def _delivery_date(value: Any) -> str:
+    try:
+        timestamp_ms = int(value)
+    except (TypeError, ValueError):
+        return ""
+    if timestamp_ms <= 0:
+        return ""
+    try:
+        return datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC).date().isoformat()
+    except (OverflowError, OSError, ValueError):
+        return ""
 
 
 def _to_float(value: Any, default: float = 0.0) -> float:
