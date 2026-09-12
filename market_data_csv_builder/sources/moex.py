@@ -17,6 +17,14 @@ from .base import select_latest_bars
 logger = logging.getLogger(__name__)
 MOSCOW = ZoneInfo("Europe/Moscow")
 
+# Advisory normalization only. APX canonical economic mapping remains external to
+# MarketDataCSVBuilder (AP-032). Source-native ASSETCODE is exported separately.
+MOEX_UNDERLYING_ALIASES = {
+    "GAZR": "GAZP",
+    "SBRF": "SBER",
+    "MIX": "IMOEX",
+}
+
 
 class MoexSource:
     name = "moex"
@@ -82,6 +90,13 @@ class MoexSource:
                 market = "futures"
                 contract_type = "PerpetualFuture" if perpetual else "TermFuture"
             lot_size = max(_to_float(row.get("LOTSIZE"), 1.0), 1.0)
+            source_underlying = symbol if market != "futures" else _text(row, "ASSETCODE")
+            underlying = _normalized_underlying(source_underlying, symbol, market)
+            contract_expiry = (
+                _iso_date_text(row.get("LASTTRADEDATE"))
+                if contract_type == "TermFuture"
+                else ""
+            )
             instrument = Instrument(
                 source=self.name,
                 market=market,
@@ -92,7 +107,13 @@ class MoexSource:
                 api_engine=engine,
                 api_market=api_market,
                 lot_size=lot_size,
-                metadata={"type_name": type_text, "board_id": _text(row, "PRIMARY_BOARDID") or _text(row, "BOARDID")},
+                metadata={
+                    "type_name": type_text,
+                    "board_id": _text(row, "PRIMARY_BOARDID") or _text(row, "BOARDID"),
+                    "source_underlying_symbol": source_underlying,
+                    "underlying_symbol": underlying,
+                    "contract_expiry": contract_expiry,
+                },
             )
             selected.setdefault((market, symbol), instrument)
         return sorted(selected.values(), key=lambda item: (item.market, item.symbol))
@@ -169,11 +190,7 @@ class MoexSource:
             volume = max(_to_float(row.get("volume")), 0.0)
             is_closed = candle_date < local_as_of.date()
             if is_forts:
-                turnover = (
-                    historical_turnover.get(candle_date)
-                    if is_closed
-                    else current_turnover
-                )
+                turnover = historical_turnover.get(candle_date) if is_closed else current_turnover
             else:
                 value = _optional_float(row.get("value"))
                 turnover = value if value is not None and value >= 0 else close * volume * instrument.lot_size
@@ -246,7 +263,6 @@ class MoexSource:
 
     def _fetch_securities(self, engine: str, market: str) -> list[dict[str, Any]]:
         self.cancellation_token.raise_if_requested()
-
         payload = self.http.get_json(
             f"{self.config.base_url.rstrip('/')}/engines/{engine}/markets/{market}/securities.json",
             {
@@ -255,11 +271,10 @@ class MoexSource:
                 "iss.only": "securities",
                 "securities.columns": (
                     "SECID,SHORTNAME,SECNAME,LATNAME,LOTSIZE,BOARDID,PRIMARY_BOARDID,"
-                    "SECTYPE,SECTYPE_NAME,TYPE,TYPE_NAME,GROUP,STATUS"
+                    "SECTYPE,SECTYPE_NAME,TYPE,TYPE_NAME,GROUP,STATUS,ASSETCODE,LASTTRADEDATE"
                 ),
             },
         )
-
         return _table(payload, "securities")
 
     def _is_perpetual(self, symbol: str, name: str, type_text: str) -> bool:
@@ -300,6 +315,18 @@ def _text(row: dict[str, Any], key: str) -> str:
 
 def _first_text(row: dict[str, Any], *keys: str) -> str:
     return next((_text(row, key) for key in keys if _text(row, key)), "")
+
+
+def _normalized_underlying(source_underlying: str, symbol: str, market: str) -> str:
+    if market != "futures":
+        return symbol
+    key = source_underlying.upper()
+    return MOEX_UNDERLYING_ALIASES.get(key, source_underlying)
+
+
+def _iso_date_text(value: Any) -> str:
+    parsed = _parse_date(value)
+    return parsed.isoformat() if parsed is not None else ""
 
 
 def _is_fund(symbol: str, name: str, type_text: str) -> bool:
