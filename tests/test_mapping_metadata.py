@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import csv
+import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
+from market_data_csv_builder.config import AppConfig, BybitConfig, MoexConfig
 from market_data_csv_builder.export import (
     CATALOG_COLUMNS,
     LATEST_SNAPSHOT_COLUMNS,
@@ -14,8 +17,8 @@ from market_data_csv_builder.export import (
 )
 from market_data_csv_builder.features import FEATURE_IDS, STRUCTURAL_FEATURE_IDS
 from market_data_csv_builder.models import Instrument, ReadyDataset
-from market_data_csv_builder.sources.bybit import _delivery_date
-from market_data_csv_builder.sources.moex import _iso_date_text, _normalized_underlying
+from market_data_csv_builder.sources.bybit import BybitSource, _delivery_date
+from market_data_csv_builder.sources.moex import MoexSource, _iso_date_text, _normalized_underlying
 
 
 LEGACY_CATALOG_COLUMNS = (
@@ -66,6 +69,19 @@ LEGACY_LATEST_BASE_COLUMNS = (
     "compact_path",
 )
 LEGACY_LATEST_COLUMNS = (*LEGACY_LATEST_BASE_COLUMNS, *FEATURE_IDS)
+
+
+class FakeHttp:
+    def __init__(self, payloads: dict[str, Any]) -> None:
+        self.payloads = payloads
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def get_json(self, url: str, params: dict[str, Any]) -> Any:
+        self.calls.append((url, dict(params)))
+        for suffix, payload in self.payloads.items():
+            if url.endswith(suffix):
+                return payload(params) if callable(payload) else payload
+        raise AssertionError(url)
 
 
 def _frame(instrument: Instrument) -> pd.DataFrame:
@@ -130,11 +146,90 @@ def test_moex_known_underlying_normalization_and_expiry() -> None:
     assert _iso_date_text(None) == ""
 
 
-def test_bybit_delivery_time_is_iso_date_and_invalid_is_blank() -> None:
+def test_moex_discovery_exports_source_and_normalized_underlying(tmp_path: Path) -> None:
+    source = MoexSource(
+        AppConfig(moex=MoexConfig(shares_enabled=False, bonds_enabled=False, funds_enabled=False)),
+        tmp_path,
+        no_cache=True,
+    )
+    columns = [
+        "SECID", "SHORTNAME", "SECNAME", "LATNAME", "LOTSIZE", "BOARDID",
+        "PRIMARY_BOARDID", "SECTYPE", "SECTYPE_NAME", "TYPE", "TYPE_NAME",
+        "GROUP", "STATUS", "ASSETCODE", "LASTTRADEDATE",
+    ]
+    source.http = FakeHttp(
+        {
+            "/futures/markets/forts/securities.json": {
+                "securities": {
+                    "columns": columns,
+                    "data": [
+                        ["GZU6", "GAZR-9.26", "", "", 1, "RFUD", "RFUD", "", "", "", "Future", "", "A", "GAZR", "2026-09-17"],
+                        ["SRU6", "SBRF-9.26", "", "", 1, "RFUD", "RFUD", "", "", "", "Future", "", "A", "SBRF", "2026-09-17"],
+                        ["MXU6", "MIX-9.26", "", "", 1, "RFUD", "RFUD", "", "", "", "Future", "", "A", "MIX", "2026-09-17"],
+                        ["MXZ6", "MIX-12.26", "", "", 1, "RFUD", "RFUD", "", "", "", "Future", "", "A", "MIX", "2026-12-17"],
+                    ],
+                }
+            }
+        }
+    )
+    found = {item.symbol: item for item in source.discover()}
+    assert found["GZU6"].metadata["source_underlying_symbol"] == "GAZR"
+    assert found["GZU6"].metadata["underlying_symbol"] == "GAZP"
+    assert found["SRU6"].metadata["underlying_symbol"] == "SBER"
+    assert found["MXU6"].metadata["underlying_symbol"] == "IMOEX"
+    assert found["MXZ6"].metadata["underlying_symbol"] == "IMOEX"
+    assert found["MXU6"].metadata["contract_expiry"] == "2026-09-17"
+    assert found["MXZ6"].metadata["contract_expiry"] == "2026-12-17"
+    requested_columns = source.http.calls[0][1]["securities.columns"]
+    assert "ASSETCODE" in requested_columns
+    assert "LASTTRADEDATE" in requested_columns
+
+
+def test_bybit_delivery_time_is_iso_date_and_discovery_keeps_underlying(tmp_path: Path) -> None:
     delivery = int(datetime(2026, 12, 25, 8, tzinfo=UTC).timestamp() * 1000)
     assert _delivery_date(delivery) == "2026-12-25"
     assert _delivery_date(None) == ""
     assert _delivery_date(0) == ""
+
+    source = BybitSource(
+        AppConfig(bybit=BybitConfig(linear_perpetual_enabled=True, linear_futures_enabled=True)),
+        tmp_path,
+        no_cache=True,
+    )
+    source.http = FakeHttp(
+        {
+            "/v5/market/instruments-info": {
+                "retCode": 0,
+                "result": {
+                    "list": [
+                        {
+                            "symbol": "BTCUSDT",
+                            "status": "Trading",
+                            "contractType": "LinearPerpetual",
+                            "baseCoin": "BTC",
+                            "quoteCoin": "USDT",
+                            "settleCoin": "USDT",
+                        },
+                        {
+                            "symbol": "BTC-25DEC26",
+                            "status": "Trading",
+                            "contractType": "LinearFutures",
+                            "baseCoin": "BTC",
+                            "quoteCoin": "USDT",
+                            "settleCoin": "USDT",
+                            "deliveryTime": str(delivery),
+                        },
+                    ],
+                    "nextPageCursor": "",
+                },
+            }
+        }
+    )
+    found = {item.symbol: item for item in source.discover()}
+    assert found["BTCUSDT"].metadata["underlying_symbol"] == "BTC"
+    assert found["BTCUSDT"].metadata["contract_expiry"] == ""
+    assert found["BTC-25DEC26"].metadata["underlying_symbol"] == "BTC"
+    assert found["BTC-25DEC26"].metadata["contract_expiry"] == "2026-12-25"
 
 
 def test_mapping_metadata_and_roll_liquidity_rank_are_reproducible(tmp_path: Path) -> None:
@@ -144,51 +239,27 @@ def test_mapping_metadata_and_roll_liquidity_rank_are_reproducible(tmp_path: Pat
     instruments = [
         Instrument(
             "moex", "shares", "GAZP", "Gazprom", "Share", quote_currency="RUB",
-            metadata={
-                "source_underlying_symbol": "GAZP",
-                "underlying_symbol": "GAZP",
-                "contract_expiry": "",
-            },
+            metadata={"source_underlying_symbol": "GAZP", "underlying_symbol": "GAZP", "contract_expiry": ""},
         ),
         Instrument(
             "moex", "futures", "GZU6", "GAZR-9.26", "TermFuture", quote_currency="RUB",
-            metadata={
-                "source_underlying_symbol": "GAZR",
-                "underlying_symbol": "GAZP",
-                "contract_expiry": "2026-09-17",
-            },
+            metadata={"source_underlying_symbol": "GAZR", "underlying_symbol": "GAZP", "contract_expiry": "2026-09-17"},
         ),
         Instrument(
             "moex", "shares", "SBER", "Sberbank", "Share", quote_currency="RUB",
-            metadata={
-                "source_underlying_symbol": "SBER",
-                "underlying_symbol": "SBER",
-                "contract_expiry": "",
-            },
+            metadata={"source_underlying_symbol": "SBER", "underlying_symbol": "SBER", "contract_expiry": ""},
         ),
         Instrument(
             "moex", "futures", "SRU6", "SBRF-9.26", "TermFuture", quote_currency="RUB",
-            metadata={
-                "source_underlying_symbol": "SBRF",
-                "underlying_symbol": "SBER",
-                "contract_expiry": "2026-09-17",
-            },
+            metadata={"source_underlying_symbol": "SBRF", "underlying_symbol": "SBER", "contract_expiry": "2026-09-17"},
         ),
         Instrument(
             "moex", "futures", "MXU6", "MIX-9.26", "TermFuture", quote_currency="RUB",
-            metadata={
-                "source_underlying_symbol": "MIX",
-                "underlying_symbol": "IMOEX",
-                "contract_expiry": "2026-09-17",
-            },
+            metadata={"source_underlying_symbol": "MIX", "underlying_symbol": "IMOEX", "contract_expiry": "2026-09-17"},
         ),
         Instrument(
             "moex", "futures", "MXZ6", "MIX-12.26", "TermFuture", quote_currency="RUB",
-            metadata={
-                "source_underlying_symbol": "MIX",
-                "underlying_symbol": "IMOEX",
-                "contract_expiry": "2026-12-17",
-            },
+            metadata={"source_underlying_symbol": "MIX", "underlying_symbol": "IMOEX", "contract_expiry": "2026-12-17"},
         ),
     ]
     turnover = {
@@ -228,14 +299,11 @@ def test_mapping_metadata_and_roll_liquidity_rank_are_reproducible(tmp_path: Pat
     assert catalog["MXU6"]["contract_expiry"] == "2026-09-17"
     assert catalog["MXZ6"]["contract_expiry"] == "2026-12-17"
 
-    # Mapping metadata must be identical between catalog and screening snapshot.
     for symbol in catalog:
         assert {key: catalog[symbol][key] for key in MAPPING_METADATA_COLUMNS} == {
             key: latest[symbol][key] for key in MAPPING_METADATA_COLUMNS
         }
 
-    # Eligibility semantics are untouched: every emitted catalog row remains READY.
     assert {row["status"] for row in catalog.values()} == {"READY"}
-    # run_report contract is unchanged by the schema extension.
-    on_disk_report = pd.read_json(current / "run_report.json", typ="series")
+    on_disk_report = json.loads((current / "run_report.json").read_text(encoding="utf-8"))
     assert on_disk_report["counts"]["READY"] == len(ready)
