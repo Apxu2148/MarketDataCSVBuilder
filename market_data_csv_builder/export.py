@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import shutil
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -34,6 +35,17 @@ BASE_COLUMNS = (
 )
 CSV_COLUMNS = (*BASE_COLUMNS, *FEATURE_IDS)
 
+# Append-only schema extension: all legacy catalog columns keep their original
+# names and positions. These fields are advisory mapping aids only; catalog
+# status=READY remains the sole builder eligibility flag and APX canonical
+# economic mapping remains external to this project.
+MAPPING_METADATA_COLUMNS = (
+    "source_underlying_symbol",
+    "underlying_symbol",
+    "contract_expiry",
+    "underlying_liquidity_rank",
+)
+
 CATALOG_COLUMNS = (
     "snapshot_id",
     "generated_at",
@@ -53,6 +65,7 @@ CATALOG_COLUMNS = (
     "full_path",
     "compact_path",
     "status",
+    *MAPPING_METADATA_COLUMNS,
 )
 
 LATEST_SNAPSHOT_BASE_COLUMNS = (
@@ -81,7 +94,9 @@ LATEST_SNAPSHOT_BASE_COLUMNS = (
     "full_path",
     "compact_path",
 )
-LATEST_SNAPSHOT_COLUMNS = (*LATEST_SNAPSHOT_BASE_COLUMNS, *FEATURE_IDS)
+# Preserve all 53 legacy latest_snapshot positions; append metadata after the
+# existing 29 feature columns for positional backward compatibility.
+LATEST_SNAPSHOT_COLUMNS = (*LATEST_SNAPSHOT_BASE_COLUMNS, *FEATURE_IDS, *MAPPING_METADATA_COLUMNS)
 
 
 class SnapshotWriter:
@@ -125,8 +140,13 @@ class SnapshotWriter:
     ) -> None:
         catalog_rows: list[dict[str, Any]] = []
         latest_snapshot_rows: list[dict[str, Any]] = []
+        liquidity_ranks = _underlying_liquidity_ranks(ready)
         for item in ready:
             instrument = item.instrument
+            mapping_metadata = _instrument_mapping_metadata(
+                instrument,
+                liquidity_ranks.get(instrument.key),
+            )
             catalog_rows.append(
                 {
                     "snapshot_id": snapshot_id,
@@ -147,6 +167,7 @@ class SnapshotWriter:
                     "full_path": item.full_path,
                     "compact_path": item.compact_path,
                     "status": "READY",
+                    **mapping_metadata,
                 }
             )
             screening_values = self._screening_values.get(instrument.key)
@@ -170,6 +191,7 @@ class SnapshotWriter:
                     **screening_values,
                     "full_path": item.full_path,
                     "compact_path": item.compact_path,
+                    **mapping_metadata,
                 }
             )
         _write_dict_csv(self.building / "catalog.csv", catalog_rows, CATALOG_COLUMNS)
@@ -255,6 +277,45 @@ def latest_screening_values(frame: pd.DataFrame) -> dict[str, Any]:
     return values
 
 
+def _instrument_mapping_metadata(instrument: Instrument, liquidity_rank: int | None) -> dict[str, Any]:
+    metadata = instrument.metadata or {}
+    source_underlying = str(
+        metadata.get("source_underlying_symbol")
+        or metadata.get("base_coin")
+        or (
+            instrument.instrument_name
+            if instrument.source == "hyperliquid" and instrument.contract_type == "Perpetual"
+            else ""
+        )
+    ).strip()
+    underlying = str(metadata.get("underlying_symbol") or source_underlying).strip()
+    return {
+        "source_underlying_symbol": source_underlying,
+        "underlying_symbol": underlying,
+        "contract_expiry": str(metadata.get("contract_expiry") or "").strip(),
+        "underlying_liquidity_rank": liquidity_rank,
+    }
+
+
+def _underlying_liquidity_ranks(ready: list[ReadyDataset]) -> dict[tuple[str, str, str, str], int]:
+    groups: dict[tuple[str, str, str], list[ReadyDataset]] = defaultdict(list)
+    for item in ready:
+        metadata = _instrument_mapping_metadata(item.instrument, None)
+        underlying = metadata["underlying_symbol"]
+        if underlying:
+            groups[(item.instrument.source, item.instrument.market, underlying)].append(item)
+
+    result: dict[tuple[str, str, str, str], int] = {}
+    for members in groups.values():
+        ordered = sorted(
+            members,
+            key=lambda item: (-float(item.average_turnover), item.instrument.symbol),
+        )
+        for rank, item in enumerate(ordered, start=1):
+            result[item.instrument.key] = rank
+    return result
+
+
 def _closed_bar_return(closed: pd.DataFrame, days: int) -> float | None:
     if len(closed) <= days:
         return None
@@ -315,6 +376,10 @@ Each CSV is one 1D time series and each row is one candle. Identity columns are 
 Turnover is not interchangeable with volume. MOEX shares and bonds use candle `value` in RUB when available and the Portfolio Builder fallback otherwise. MOEX FORTS keeps candle OHLCV but joins closed-day RUB turnover from historical trading-results `VALUE`; today's provisional candle uses marketdata `VALTODAY` when available and never synthesizes turnover from `close*volume*lot_size`. Bybit uses V5 quote turnover and keeps the actual quote coin (including USDT or USDC). Hyperliquid uses candle quote/notional value when supplied and documented `close*volume` fallback, reported as USDC/USD-equivalent.
 
 `catalog.csv` is the canonical inventory of successfully generated current series (`status=READY`) and their relative paths. `latest_snapshot.csv` is a compact derived screening view with exactly one row per READY series. Its 29 features and 1/5/20-day returns use only the last fully closed candle; `current_timestamp` and `current_close`, when present, describe the separate provisional candle. Empty feature or return cells mean insufficient history. `has_100_closed_bars` and `has_1000_closed_bars` expose the available history depth.
+
+Both `catalog.csv` and `latest_snapshot.csv` append four mapping-assistance fields: `source_underlying_symbol`, `underlying_symbol`, `contract_expiry`, and `underlying_liquidity_rank`. They are advisory metadata only. `source_underlying_symbol` preserves the venue-native underlying identifier where available; `underlying_symbol` is a normalized hint (for example MOEX `GAZR` -> `GAZP`, `SBRF` -> `SBER`, `MIX` -> `IMOEX`); `contract_expiry` is an ISO date for dated contracts when the venue supplies it; `underlying_liquidity_rank` ranks READY series by `avg_daily_turnover` within the same source/market/underlying group, with 1 being most liquid. These fields never change READY eligibility and must not silently override a downstream canonical mapping registry.
+
+The schema extension is append-only. All legacy `catalog.csv` columns retain their original names and positions. All legacy 53 `latest_snapshot.csv` columns retain their original names and positions; the four new fields are appended after them. `run_report.json` semantics and counts are unchanged.
 
 ## Recommended downstream workflow
 
