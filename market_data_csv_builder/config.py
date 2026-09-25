@@ -96,6 +96,7 @@ class IntradayConfig:
     requests_per_second: float = 5
     refresh_cache: bool = False
     use_system_proxy: bool = False
+    feature_workers: int = 4
 
 
 @dataclass(frozen=True)
@@ -152,7 +153,7 @@ def validate_config(config: AppConfig) -> None:
         raise ValueError("INTRADAY supports only Bybit linear USDT perpetuals")
     if not intraday.timeframes or len(set(intraday.timeframes)) != len(intraday.timeframes) or set(intraday.timeframes) - {"1D", "4H", "1H", "15m", "5m"}:
         raise ValueError("Invalid or duplicate intraday timeframes")
-    for name in ("closed_bars", "concurrency", "max_retries", "atr_period"):
+    for name in ("closed_bars", "concurrency", "feature_workers", "max_retries", "atr_period"):
         value = getattr(intraday, name)
         if type(value) is not int or value <= 0:
             raise ValueError(f"intraday.{name} must be a positive integer")

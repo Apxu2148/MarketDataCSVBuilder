@@ -128,3 +128,10 @@ On the local Windows environment where the production snapshot is generated, run
   limitation is documented in earlier project evidence; MOEX code was not changed.
 - Local system proxy was identified as a latency source. INTRADAY now defaults to
   direct HTTPS; use_system_proxy=true is available without changing OS/APX settings.
+
+- Direct HTTPS history stage completed all five TFs: 65.9 / 75.9 / 77.5 / 102.7 / 112.1 s.
+  100 eligible, 499 usable histories; BCHUSDT 1D rejected for invalid provider price/volume.
+  1322 attempted requests, 21 network retries, zero rate-limit events. Development run stopped
+  before publication to address measured CPU bottleneck: threaded features only ~0.5 series/s.
+- Independent feature calculations now use a bounded process pool (default 4), with the same
+  shared engine; no algorithm rewrite or new dependencies. Spawned-worker parity is tested.

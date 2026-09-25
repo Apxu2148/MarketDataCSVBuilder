@@ -56,7 +56,7 @@ ticker refresh does not redefine membership mid-run. Both eligibility and curren
 turnover timestamps/values are exported so threshold crossings remain explicit.
 
 Network retries share one paced limiter, including feedback from X-Bapi reset headers,
-HTTP 429 and API 10006. Five retries means initial request plus configured max_retries=4.
+HTTP 429 and API 10006. Five attempts means initial request plus configured max_retries=4.
 Public request paths are explicitly restricted to instruments-info, tickers and kline.
 No orders, credentials, account endpoints, funding history or order book are used.
 
@@ -71,3 +71,8 @@ Timings: initial discovery includes metadata+ticker; history by timeframe is wal
 feature_calculation is the initial full calculation stage; final_refresh includes tail
 network/feature/export work; export is a nested component. These timings overlap and
 must not be summed. total is elapsed through validation and final report preparation.
+
+CPU calculations use a bounded ProcessPoolExecutor; network requests retain their shared
+threaded limiter. Workers only evaluate DataFrames and perform no I/O. A spawned-worker
+regression test verifies numerical and structural equivalence to the shared engine.
+The parent stops submissions on cancellation and waits for at most the active calculations.

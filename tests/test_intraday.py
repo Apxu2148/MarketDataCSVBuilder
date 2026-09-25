@@ -24,6 +24,27 @@ TOKEN = CancellationToken()
 FIXED = 1800000000
 
 
+@pytest.fixture(autouse=True)
+def inline_feature_workers(monkeypatch):
+    # Integration fixtures test pipeline behavior without repeated Windows spawn cost.
+    # A separate test below verifies the actual spawned CPU worker.
+    from market_data_csv_builder.intraday import pipeline
+    class InlinePool:
+        def __init__(self, **kwargs):
+            pass
+        def submit(self, function, *args):
+            from concurrent.futures import Future
+            future = Future()
+            try:
+                future.set_result(function(*args))
+            except Exception as exc:
+                future.set_exception(exc)
+            return future
+        def shutdown(self, **kwargs):
+            pass
+    monkeypatch.setattr(pipeline, "ProcessPoolExecutor", InlinePool)
+
+
 def instrument(symbol="BTCUSDT", **changes):
     return dict(symbol=symbol, status="Trading", contractType="LinearPerpetual",
                 quoteCoin="USDT", settleCoin="USDT", baseCoin="BTC", **changes)
@@ -356,3 +377,11 @@ def test_transient_error_retries_same_host(monkeypatch):
     monkeypatch.setattr(client, "open", request)
     client.get("tickers")
     assert len(urls) == 2 and urls[0] == urls[1]
+
+
+def test_spawned_feature_worker_matches_shared_engine(candle_frame):
+    from concurrent.futures import ProcessPoolExecutor
+    from market_data_csv_builder.intraday.pipeline import _calculate_worker
+    with ProcessPoolExecutor(max_workers=1) as pool:
+        spawned = pool.submit(_calculate_worker, candle_frame).result(timeout=30)
+    pd.testing.assert_frame_equal(spawned, calculate(candle_frame, TOKEN))

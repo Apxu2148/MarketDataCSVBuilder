@@ -5,6 +5,7 @@ import subprocess
 import time
 import uuid
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import pandas as pd
@@ -19,6 +20,11 @@ from .export import (CATALOG_COLUMNS, LATEST_COLUMNS, SERIES_COLUMNS, UNIVERSE_C
     RETURNS, calculate, publish, serialize, snapshot_readme, universe_row,
     validate_snapshot, write_csv, write_json)
 from .provider import BybitPublicClient, CandleStore, TIMEFRAMES, WARMUP_BARS, eligible_instruments, now_iso
+
+
+def _calculate_worker(frame, previous=None):
+    """CPU worker: same feature engine, no network or filesystem side effects."""
+    return calculate(frame, CancellationToken(), previous)
 
 
 def run_intraday(config, root: Path, *, refresh_cache=False, no_cache=False,
@@ -51,6 +57,15 @@ def _run(config, root, token, client, refresh_cache, no_cache):
         feature_calculation=0.0, export=0.0, validation=0.0, total=0.0)
     failures = []
     store = CandleStore(root, client, token, config.cache.enabled and not no_cache, refresh_cache)
+    feature_pool = ProcessPoolExecutor(max_workers=settings.feature_workers) if settings.feature_workers > 1 else None
+
+    def compute(frame, previous=None):
+        token.raise_if_requested()
+        if feature_pool is None:
+            return calculate(frame, token, previous)
+        result = feature_pool.submit(_calculate_worker, frame, previous).result()
+        token.raise_if_requested()
+        return result
 
     def jobs(items, function, stage, workers=None):
         progress = StageProgress("intraday", stage, len(items))
@@ -112,7 +127,7 @@ def _run(config, root, token, client, refresh_cache, no_cache):
             timings["history_download"] += elapsed
 
         stage = time.perf_counter()
-        for key, future, progress in jobs(sorted(histories), lambda key: calculate(histories[key], token), "features"):
+        for key, future, progress in jobs(sorted(histories), lambda key: compute(histories[key]), "features", settings.feature_workers):
             try:
                 calculated[key] = future.result()
             except CancellationRequested:
@@ -135,7 +150,7 @@ def _run(config, root, token, client, refresh_cache, no_cache):
                 frame, stamp = store.fetch(*key, settings.closed_bars, previous=histories[key])
                 network = time.perf_counter() - begin
                 begin = time.perf_counter()
-                frame = calculate(frame, token, previous=calculated[key])
+                frame = compute(frame, previous=calculated[key])
                 return frame, stamp, network, time.perf_counter() - begin
 
             for item, future, progress in jobs(eligible, refresh, f"final refresh/export {tf}"):
@@ -234,6 +249,7 @@ def _run(config, root, token, client, refresh_cache, no_cache):
         report = dict(profile="intraday", snapshot_id=snapshot, started_at_utc=started, completed_at_utc=completed,
             config_summary=dict(cache_enabled=store.enabled, refresh_cache=store.refresh,
                 concurrency=settings.concurrency, requests_per_second=settings.requests_per_second,
+                feature_workers=settings.feature_workers,
                 use_system_proxy=settings.use_system_proxy, max_retries=settings.max_retries,
                 request_timeout=settings.request_timeout),
             counts=dict(discovered=len(instruments), eligible=len(eligible), rejected_by_liquidity=applicable-len(eligible),
@@ -271,3 +287,6 @@ def _run(config, root, token, client, refresh_cache, no_cache):
         write_json(staging / "failure.json", dict(snapshot_id=snapshot, error_type=type(exc).__name__,
             reason=str(exc), failures=failures, elapsed_seconds=time.perf_counter()-start_clock, **client.metrics()))
         raise
+    finally:
+        if feature_pool is not None:
+            feature_pool.shutdown(wait=True, cancel_futures=True)

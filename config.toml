@@ -71,3 +71,4 @@ jitter = 0.25
 requests_per_second = 5
 refresh_cache = false
 use_system_proxy = false
+feature_workers = 4

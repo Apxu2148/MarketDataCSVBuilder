@@ -104,7 +104,8 @@ Edit `[intraday]` in `config.toml`: change `min_turnover24h_usdt = 10_000_000` t
 `30_000_000` for a 10M -> 30M threshold. All active contracts meeting the initial
 rolling turnover24h threshold are included, without TOP-N. Remove entries from
 `timeframes` to disable a timeframe; `closed_bars` controls export depth;
-`concurrency`, `requests_per_second`, `request_timeout`, `max_retries`,
+`concurrency` (network threads), `feature_workers` (CPU processes),
+`requests_per_second`, `request_timeout`, `max_retries`,
 `backoff_base`, `backoff_max` and `jitter` control network behavior. ATR period is
 validated as 14 to preserve the meaning of the atr_wilder_14 column.
 `--limit` and `--as-of` are rejected for INTRADAY because its universe is live.
@@ -171,3 +172,6 @@ Official V5 references checked during implementation:
 Kline and instrument pages allow up to 1000 rows; klines paginate backward by end,
 metadata by cursor. Best bid/ask and funding are timestamped snapshots, not live
 execution guarantees. Full order book is deliberately absent.
+
+INTRADAY evaluates independent series in a bounded process pool to avoid Python GIL contention.
+The shared APX feature engine is unchanged. Set `feature_workers = 1` for in-process calculation.
