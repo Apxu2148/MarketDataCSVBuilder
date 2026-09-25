@@ -385,3 +385,45 @@ def test_spawned_feature_worker_matches_shared_engine(candle_frame):
     with ProcessPoolExecutor(max_workers=1) as pool:
         spawned = pool.submit(_calculate_worker, candle_frame).result(timeout=30)
     pd.testing.assert_frame_equal(spawned, calculate(candle_frame, TOKEN))
+
+
+def test_resume_export_prefix_matches_full_calculation(tmp_path, fixed):
+    from market_data_csv_builder.intraday.export import load_reusable_series, serialize, write_csv, SERIES_COLUMNS
+    from market_data_csv_builder.export import slice_closed_and_current
+    store = CandleStore(tmp_path, FakeClient(), TOKEN)
+    frame, _ = store.fetch("BTCUSDT", "5m", 1200)
+    full = calculate(frame, TOKEN)
+    exported = slice_closed_and_current(full, 1200)
+    for name, value in dict(snapshot_id="test", source="bybit", market="linear_perpetual", symbol="BTCUSDT",
+        instrument_name="BTCUSDT", contract_type="LinearPerpetual", dex="", quote_currency="USDT",
+        turnover_currency="USDT", timeframe="5m").items():
+        exported[name] = value
+    path = tmp_path / "staged.csv"
+    write_csv(path, serialize(exported), SERIES_COLUMNS)
+    previous = load_reusable_series(path, "BTCUSDT", "5m")
+    updated = frame.copy()
+    updated.loc[len(updated)-1, "high"] += 10
+    resumed = calculate(updated, TOKEN, previous, 999)
+    expected = calculate(updated, TOKEN)
+    pd.testing.assert_frame_equal(resumed.iloc[999:].reset_index(drop=True),
+        expected.iloc[999:].reset_index(drop=True), check_dtype=False, rtol=1e-10, atol=1e-12)
+    # Increasing export depth cannot leave newly requested older rows uncalculated.
+    resumed = calculate(updated, TOKEN, previous, 100)
+    pd.testing.assert_frame_equal(resumed.iloc[100:].reset_index(drop=True),
+        expected.iloc[100:].reset_index(drop=True), check_dtype=False, rtol=1e-10, atol=1e-12)
+
+
+def test_resume_staging_reuses_valid_series(tmp_path, fixed):
+    prepare_root(tmp_path)
+    config = replace(AppConfig(), intraday=IntradayConfig(timeframes=["5m"]))
+    report = run_intraday(config, tmp_path, client=FakeClient(length=25))
+    current = tmp_path / "output/intraday/current"
+    staging = tmp_path / "output/intraday/.staging/interrupted"
+    shutil.copytree(current, staging)
+    resumed = run_intraday(config, tmp_path, client=FakeClient(length=25), resume_staging=staging)
+    assert resumed["reused_series_count"] == 1
+    assert not resumed["resume_rejections"]
+    assert resumed["resumed_from_snapshot"] == "interrupted"
+    assert resumed["snapshot_id"] != report["snapshot_id"]
+    validate_snapshot(current)
+    assert staging.exists()

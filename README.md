@@ -175,3 +175,12 @@ execution guarantees. Full order book is deliberately absent.
 
 INTRADAY evaluates independent series in a bounded process pool to avoid Python GIL contention.
 The shared APX feature engine is unchanged. Set `feature_workers = 1` for in-process calculation.
+
+To continue an interrupted run after confirming its process has stopped, use
+`run_intraday.bat --resume-staging output/intraday/.staging/<snapshot_id>`.
+Validated staged CSVs supply already computed feature prefixes; completed history comes
+from the existing cache, and missing/new tails are fetched. Fresh metadata/tickers define
+the current eligible set. A new snapshot ID records `resumed_from_snapshot` and
+`reused_series_count`, avoiding mixing old eligibility timestamps with new market data.
+The source staging is preserved. Remove a stale `.run.lock` only after confirming that
+the prior INTRADAY process is no longer running.

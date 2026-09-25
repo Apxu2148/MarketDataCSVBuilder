@@ -18,33 +18,37 @@ from ..progress import StageProgress
 from ..utils import safe_path_component
 from .export import (CATALOG_COLUMNS, LATEST_COLUMNS, SERIES_COLUMNS, UNIVERSE_COLUMNS,
     RETURNS, calculate, publish, serialize, snapshot_readme, universe_row,
-    validate_snapshot, write_csv, write_json)
+    validate_snapshot, write_csv, write_json, load_reusable_series)
 from .provider import BybitPublicClient, CandleStore, TIMEFRAMES, WARMUP_BARS, eligible_instruments, now_iso
 
 
-def _calculate_worker(frame, previous=None):
+def _calculate_worker(frame, previous=None, reuse_export=0):
     """CPU worker: same feature engine, no network or filesystem side effects."""
-    return calculate(frame, CancellationToken(), previous)
+    return calculate(frame, CancellationToken(), previous, reuse_export)
 
 
 def run_intraday(config, root: Path, *, refresh_cache=False, no_cache=False,
-                 cancellation_token=None, client=None):
+                 cancellation_token=None, client=None, resume_staging=None):
     token = cancellation_token or CancellationToken()
     settings = config.intraday
     output = root / "output/intraday"
     output.mkdir(parents=True, exist_ok=True)
+    if resume_staging is not None:
+        resume_staging = Path(resume_staging).resolve()
+        if resume_staging.parent != (output / ".staging").resolve() or not resume_staging.is_dir():
+            raise ValueError("Resume source must be an existing project INTRADAY staging directory")
     # Exclusive per-profile lock avoids concurrent publication/cache mutations.
     lock = output / ".run.lock"
     with lock.open("x", encoding="utf-8") as handle:
         handle.write(now_iso())
     try:
         return _run(config, root, token, client or BybitPublicClient(config, token),
-                    refresh_cache or settings.refresh_cache, no_cache)
+                    refresh_cache or settings.refresh_cache, no_cache, resume_staging)
     finally:
         lock.unlink(missing_ok=True)
 
 
-def _run(config, root, token, client, refresh_cache, no_cache):
+def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=None):
     start_clock, started = time.perf_counter(), now_iso()
     snapshot = started.replace(":", "").replace("-", "").replace("+0000", "Z") + "_" + uuid.uuid4().hex[:8]
     settings = config.intraday
@@ -59,11 +63,11 @@ def _run(config, root, token, client, refresh_cache, no_cache):
     store = CandleStore(root, client, token, config.cache.enabled and not no_cache, refresh_cache)
     feature_pool = ProcessPoolExecutor(max_workers=settings.feature_workers) if settings.feature_workers > 1 else None
 
-    def compute(frame, previous=None):
+    def compute(frame, previous=None, reuse_export=0):
         token.raise_if_requested()
         if feature_pool is None:
-            return calculate(frame, token, previous)
-        result = feature_pool.submit(_calculate_worker, frame, previous).result()
+            return calculate(frame, token, previous, reuse_export)
+        result = feature_pool.submit(_calculate_worker, frame, previous, reuse_export).result()
         token.raise_if_requested()
         return result
 
@@ -126,8 +130,23 @@ def _run(config, root, token, client, refresh_cache, no_cache):
             timings["history_download_by_timeframe"][tf] = elapsed
             timings["history_download"] += elapsed
 
+        reusable, resume_rejections = {}, []
+        if resume_staging is not None:
+            for key in sorted(histories):
+                path = resume_staging / "series" / safe_path_component(key[0]) / (key[1] + ".csv")
+                if path.is_file():
+                    try:
+                        reusable[key] = load_reusable_series(path, *key)
+                    except Exception as exc:
+                        resume_rejections.append(dict(symbol=key[0], timeframe=key[1], reason=str(exc)))
+            print(f"INTRADAY resume: {len(reusable)} validated staged series reused; {len(resume_rejections)} rejected", flush=True)
         stage = time.perf_counter()
-        for key, future, progress in jobs(sorted(histories), lambda key: compute(histories[key]), "features", settings.feature_workers):
+        def initial_features(key):
+            frame = histories[key]
+            omitted_prefix = max(0, int(frame.is_closed.sum()) - settings.closed_bars) if key in reusable else 0
+            return compute(frame, reusable.get(key), omitted_prefix)
+
+        for key, future, progress in jobs(sorted(histories), initial_features, "features", settings.feature_workers):
             try:
                 calculated[key] = future.result()
             except CancellationRequested:
@@ -137,6 +156,8 @@ def _run(config, root, token, client, refresh_cache, no_cache):
                 failure(*key, "features", exc)
                 progress.warning(str(key), str(exc))
         timings["feature_calculation"] = time.perf_counter() - stage
+        reused_series_count = len(reusable)
+        reusable.clear()
 
         # Export during final pass so 5m does not wait for expensive full feature calculations.
         catalog, latest = [], []
@@ -231,6 +252,7 @@ def _run(config, root, token, client, refresh_cache, no_cache):
         for row in catalog:
             row["generated_at_utc"] = completed
         manifest = dict(schema_version="1.0", builder_version="2.0", git_commit=commit, profile="intraday",
+            resumed_from_snapshot=resume_staging.name if resume_staging else None, reused_series_count=reused_series_count,
             snapshot_id=snapshot, started_at_utc=started, completed_at_utc=completed,
             final_refresh_at_utc=ticker_at, provider="bybit", market="linear_perpetual", quote_or_settle="USDT",
             liquidity_filter=dict(field="turnover24h", threshold_usdt=settings.min_turnover24h_usdt,
@@ -247,6 +269,8 @@ def _run(config, root, token, client, refresh_cache, no_cache):
         applicable = sum((i.get("status"), i.get("contractType"), i.get("quoteCoin"), i.get("settleCoin")) ==
                          ("Trading", "LinearPerpetual", "USDT", "USDT") for i in instruments)
         report = dict(profile="intraday", snapshot_id=snapshot, started_at_utc=started, completed_at_utc=completed,
+            resumed_from_snapshot=resume_staging.name if resume_staging else None,
+            reused_series_count=reused_series_count, resume_rejections=resume_rejections,
             config_summary=dict(cache_enabled=store.enabled, refresh_cache=store.refresh,
                 concurrency=settings.concurrency, requests_per_second=settings.requests_per_second,
                 feature_workers=settings.feature_workers,

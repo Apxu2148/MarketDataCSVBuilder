@@ -30,7 +30,7 @@ UNIVERSE_COLUMNS = ("snapshot_id", "symbol", "status", "contract_type", "quote_c
     "instrument_metadata_fetched_at_utc")
 
 
-def calculate(frame, token, previous=None):
+def calculate(frame, token, previous=None, reuse_export=0):
     if previous is None:
         result = calculate_features(frame, cancellation_token=token)
     else:
@@ -41,6 +41,11 @@ def calculate(frame, token, previous=None):
         changed = ~common
         for name in ("open", "high", "low", "close", "is_closed"):
             changed |= result[name].ne(result.timestamp.map(old[name]))
+        if reuse_export:
+            # Persisted exports omit warm-up rows. Their absent feature values are
+            # not changes to the underlying candles. Known changed rows still
+            # invalidate the suffix, including changes before the export window.
+            changed &= ~(~common & (result.timestamp < previous.timestamp.min()) & (result.index < reuse_export))
         positions = [i for i, value in enumerate(changed) if value]
         first = min(positions) if positions else len(result)
         for name in FEATURE_IDS:
@@ -68,6 +73,53 @@ def calculate(frame, token, previous=None):
     for periods, name in zip((1, 5, 20), RETURNS):
         result[name] = result.close / result.close.shift(periods) - 1
     return result
+
+
+def load_reusable_series(path, symbol, timeframe):
+    """Validate a staged series before reusing its already computed feature prefix."""
+    frame = pd.read_csv(path, float_precision="round_trip")
+    if frame.empty or set(SERIES_COLUMNS) - set(frame.columns):
+        raise ValueError("Incomplete staged CSV/schema")
+    for column, expected in (("symbol", symbol), ("timeframe", timeframe),
+                             ("source", "bybit"), ("market", "linear_perpetual")):
+        if not frame[column].eq(expected).all():
+            raise ValueError("Staged series identity mismatch")
+    frame["timestamp"] = pd.to_datetime(frame.timestamp, utc=True, errors="raise")
+    if frame.timestamp.duplicated().any() or not frame.timestamp.is_monotonic_increasing:
+        raise ValueError("Invalid staged timestamps")
+    for column in ("is_closed", "provisional"):
+        if frame[column].dtype != bool:
+            raise ValueError("Invalid staged candle flags")
+    if not frame.provisional.eq(~frame.is_closed).all() or frame.provisional.sum() > 1:
+        raise ValueError("Contradictory staged candle flags")
+    if frame.provisional.any() and not frame.iloc[-1].provisional:
+        raise ValueError("Provisional staged candle must be last")
+    numbers = frame[["open", "high", "low", "close", "volume", "turnover"]]
+    if not numbers.map(math.isfinite).all().all() or (numbers.iloc[:, :4] <= 0).any().any() or (numbers.iloc[:, 4:] < 0).any().any():
+        raise ValueError("Invalid staged OHLCV")
+    if (frame.high < frame[["open", "low", "close"]].max(axis=1)).any() or (frame.low > frame[["open", "high", "close"]].min(axis=1)).any():
+        raise ValueError("Invalid staged OHLC range")
+    for name in STRUCTURAL_FEATURE_IDS:
+        def decode(value):
+            if pd.isna(value):
+                return None
+            data = json.loads(value)
+            if not isinstance(data, list) or any(not isinstance(pair, list) or len(pair) != 2 or
+                type(pair[0]) is not int or pair[0] > 0 or not math.isfinite(pair[1]) or pair[1] <= 0 for pair in data):
+                raise ValueError("Invalid staged structural feature")
+            return tuple(tuple(pair) for pair in data)
+        frame[name] = frame[name].map(decode)
+    for name in set(FEATURE_IDS) - set(STRUCTURAL_FEATURE_IDS):
+        values = pd.to_numeric(frame[name], errors="raise")
+        if not values.dropna().map(math.isfinite).all():
+            raise ValueError("Non-finite staged feature")
+        frame[name] = pd.array(values, dtype="Int8") if name in PATTERN_FEATURE_IDS else values
+    if len(frame) >= 1000:
+        for name in FEATURE_IDS:
+            value = frame.iloc[-1][name]
+            if value is None or value is pd.NA or (isinstance(value, float) and math.isnan(value)):
+                raise ValueError("Incomplete staged feature tail")
+    return frame
 
 
 def serialize(frame):

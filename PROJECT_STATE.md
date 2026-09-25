@@ -135,3 +135,19 @@ On the local Windows environment where the production snapshot is generated, run
   before publication to address measured CPU bottleneck: threaded features only ~0.5 series/s.
 - Independent feature calculations now use a bounded process pool (default 4), with the same
   shared engine; no algorithm rewrite or new dependencies. Spawned-worker parity is tested.
+
+
+## Acceptance continuation after interruption (2026-09-25 evening)
+
+- On user-requested continuation, git status was clean on feature/intraday-profile.
+  Process-pool implementation was committed as df1049e (parent 5a12cdc).
+- The earlier process no longer existed; its staging retained 298 exported series
+  (99 daily, 100 four-hour, 99 hourly) and the cache contained 500 series files.
+- Added explicit --resume-staging support: validate persisted series, reuse feature
+  prefixes, fetch missing/current candle tails from the existing completed cache,
+  rebuild fresh universe metadata, and record resumed_from_snapshot/reused_series_count.
+  Source staging remains unchanged. Missing/invalid staged series use the cached history.
+- Resumed-tail numerical/structural parity and end-to-end staging reuse are covered by
+  tests. Rolling floating-point calculations agree within rtol=1e-10; original APX
+  algorithms remain unchanged. This tolerance accounts for rolling variance rounding
+  when the same engine calculates a shorter overlapping suffix.
