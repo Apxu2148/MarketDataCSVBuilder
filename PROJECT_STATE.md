@@ -161,3 +161,25 @@ On the local Windows environment where the production snapshot is generated, run
   and previous (389 files) match their respective SHA-256 baselines.
 - Main remains clean at 264eae7; integration awaits successful live acceptance.
   Full status, evidence paths and exact resume command: docs/INTRADAY_DELIVERY_REPORT.md.
+
+## Final delivery and main integration (2026-09-25)
+
+- User restored authorized connectivity and completed resumed snapshot
+  20260925T193403.619097Z_da5ae49f using code 16d4a62.
+- Independently validated published snapshot in worktree and original project:
+  885 discovered, 98 eligible, 489/490 successful series, 97 READY symbols,
+  one PARTIAL (BCHUSDT; invalid upstream daily OHLC), zero failed symbols.
+- Runtime 534.947 s; 1292 requests, zero retries and rate-limit events.
+  Reused 449 staged feature series. No repeated full download during integration.
+- Final series refresh 19:39:22.715482--19:42:48.137294 UTC; bulk ticker/funding
+  19:42:49.663079; completion 19:42:58.571222. All refresh/bar-boundary checks pass.
+  BTC/ETH/SUI: all 15 series READY, each 1200 closed plus one provisional.
+- Fast-forwarded clean original main from 264eae7 to feature/intraday-profile.
+  Copied INTRADAY current (495 files, 388258961 bytes) and cache (540 files,
+  75316558 bytes); all copied files matched SHA-256. Kept old staging in worktree.
+- Original project offline tests: 96 passed, 3 live deselected, 57.14 s.
+  Both profile launchers --help and published-snapshot validation pass.
+- APX preservation after integration: current 401 and previous 389 files match
+  baselines. Core APX modules/adapters unchanged; no new dependencies.
+- No push or Google Drive writes. Temporary worktree retained, safe to remove
+  after delivery using git worktree remove. Final report: docs/INTRADAY_DELIVERY_REPORT.md.

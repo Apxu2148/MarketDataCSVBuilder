@@ -1,4 +1,77 @@
-# APX / INTRADAY — состояние сдачи на 25 сентября 2026
+# APX / INTRADAY — окончательный delivery report
+
+## Итог после восстановления подключения и интеграции
+
+Принят snapshot `20260925T193403.619097Z_da5ae49f`. Код интегрирован в существующий `C:\Python\MarketDataCSVBuilder` через fast-forward чистого main с `264eae7` на ветку `feature/intraday-profile`. Повторная полная загрузка при интеграции не выполнялась. Версия кода snapshot — `16d4a62e43048087f82dee92721ef6d63691ab5a`; последующий commit документации указан в сообщении сдачи и `git log -1`. Push не выполнялся.
+
+| Acceptance metric | Результат |
+|---|---:|
+| Discovered / eligible | 885 / 98 |
+| Expected / successful / failed series | 490 / 489 / 1 |
+| READY / PARTIAL / FAILED symbols | 97 / 1 / 0 |
+| Partial series | 0 |
+| Reused feature series | 449 |
+| API requests / estimated weight | 1292 / 1292 |
+| Retries / rate-limit events / HTTP429 / Bybit10006 | 0 / 0 / 0 / 0 |
+| Total runtime | 534,947 с |
+| Published snapshot | 495 файлов, 388 258 961 байт |
+| Перенесённый cache | 540 файлов, 75 316 558 байт |
+
+Единственная failed series — BCHUSDT/1D: историческая свеча 2020-12-14 с open=0, low=0. Остальные четыре TF BCHUSDT доступны; symbol PARTIAL. OHLC не подменялись.
+
+Timings: discovery 2,241 с (metadata 0,545; ticker 1,696), history 137,493 с, feature calculation 146,754 с, final refresh 207,693 с, export 75,580 с, validation 8,801 с. История по TF: 1D 39,008; 4H 26,755; 1H 24,992; 15m 23,370; 5m 23,370 с. Метрики этапов перекрываются и не суммируются в total. Rate-limit wait 364,572 с — агрегированное ожидание потоков.
+
+### Freshness и validation
+
+UTC 25 сентября 2026: начало 19:34:03.619097; eligibility 19:34:05.861428; final refresh серий 19:39:22.715482–19:42:48.137294; bulk ticker/funding 19:42:49.663079; завершение 19:42:58.571222. Максимальный возраст series refresh при завершении 215,856 с, bulk ticker/funding — 8,908 с. Проверено для всех успешных серий: refresh после history fetch и до completion; provisional timestamp соответствует границе TF на момент fetch; ticker/funding обновлены после всех серий. Эти значения характеризуют свежесть при создании snapshot; копирование не обновляет рынок.
+
+Валидатор успешно выполнен и в worktree, и в основном каталоге. Проверены manifest, catalog, latest_features, universe, run_report, README, inventory и соответствие screening/raw. BTCUSDT/ETHUSDT/SUIUSDT: все 15 серий READY, по 1200 закрытых баров и одному provisional. Последние closed/current timestamps для всех трёх symbols:
+
+| TF | Closed UTC | Provisional UTC |
+|---|---|---|
+| 1D | 2026-09-24 00:00 | 2026-09-25 00:00 |
+| 4H | 2026-09-25 12:00 | 2026-09-25 16:00 |
+| 1H | 2026-09-25 18:00 | 2026-09-25 19:00 |
+| 15m | 2026-09-25 19:15 | 2026-09-25 19:30 |
+| 5m | 2026-09-25 19:35 | 2026-09-25 19:40 |
+
+### Интеграция и сохранность
+
+В основной проект перенесены только published INTRADAY current, cache и отчёты проверки. SHA-256 каждого из 495 файлов snapshot и 540 файлов cache совпал с worktree. Старые незавершённые staging остались в worktree. После интеграции совпали APX hashes: current 401 файл, previous 389 файлов. Общие APX features/pipeline/export/source adapters не изменены относительно base. Новых dependencies нет; основной launcher использует существующий локальный `venv`.
+
+Оба launcher проверены через `--help`; повторная локальная validation snapshot прошла. Offline suite из основного каталога: **96 passed, 3 live deselected, 57,14 с**. Ранее live smoke Bybit/Hyperliquid прошёл; MOEX был заблокирован TLS timeout, что не считается PASS. Новый APX live run при интеграции не запускался.
+
+Доказательства в основном `output`: `intraday_acceptance.json`, `intraday_delivery_checks.json`, `intraday_transfer_verification.json`, `apx_preservation_check.json` и baseline hashes. Runtime/counts сохранены также в current/run_report.json.
+
+### Рабочие команды и документация
+
+```powershell
+Set-Location C:\Python\MarketDataCSVBuilder
+.\run_apx.bat
+.\run_intraday.bat
+```
+
+`.\run.bat` по-прежнему запускает APX. Проверка INTRADAY без сети: `.\venv\Scripts\python.exe scripts\validate_intraday.py`.
+
+Config: `C:\Python\MarketDataCSVBuilder\config.toml`; для 10M → 30M изменить только `[intraday] min_turnover24h_usdt = 30_000_000`.
+
+Созданы и доступны:
+
+- `C:\Python\MarketDataCSVBuilder\output\intraday\current\README_INTRADAY_MARKET_DATA.md`
+- `C:\Python\MarketDataCSVBuilder\docs\APX_INTRADAY_MARKETDATA_CONSUMER.md`
+- `C:\Python\MarketDataCSVBuilder\docs\INTRADAY_IMPLEMENTATION.md`
+
+### Очистка и Google Drive
+
+Временный `C:\Python\MarketDataCSVBuilder_intraday_work` больше не нужен для запуска: после сдачи его можно целиком удалить через `git worktree remove --force C:\Python\MarketDataCSVBuilder_intraday_work` из основного проекта. Код закоммичен, current/cache перенесены и проверены. Удалятся временная `.venv`, старые staging и диагностика worktree. Автоматическое удаление не выполнялось. Можно также удалить только старые `output/intraday/.staging` внутри временного worktree.
+
+Сохранять основной проект, его `venv`, APX current/previous, `output/intraday/current` и `data/cache/intraday`: cache нужен для инкрементальных запусков.
+
+Вручную скопировать целиком `C:\Python\MarketDataCSVBuilder\output\intraday\current\` в `Apx Markets/01_INPUTS/marketdata/MarketDataCSVBuilder/intraday/current/` с заменой предыдущего snapshot. Скопировать `C:\Python\MarketDataCSVBuilder\docs\APX_INTRADAY_MARKETDATA_CONSUMER.md` в `Apx Markets/00_CONTROL/ROUTE_SPECS/APX_INTRADAY_MARKETDATA_CONSUMER.md`. Google Drive не изменялся.
+
+## Историческое состояние до восстановления подключения
+
+Ниже сохранена история диагностики. Указанные здесь блокировка, отсутствие публикации и ожидание интеграции устранены; актуальный результат приведён выше.
 
 Работа не принята полностью: live acceptance и final freshness pass заблокированы HTTP 403 Bybit. Подключение напрямую и через существующий системный прокси возвращает сообщение CloudFront о блокировке страны. Интеграция в основной каталог отложена до успешного acceptance; устаревший staging не опубликован как current.
 
