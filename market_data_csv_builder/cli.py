@@ -14,9 +14,10 @@ from .utils import parse_as_of
 
 def build_parser(root: Path) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Build daily MOEX, Bybit and Hyperliquid OHLCV + 29-feature CSV snapshots."
+        description="Build APX daily or Bybit INTRADAY OHLCV and indicator CSV snapshots."
     )
     parser.add_argument("--config", type=Path, default=root / "config.toml")
+    parser.add_argument("--profile", choices=("apx", "intraday"), default="apx")
     parser.add_argument("--source", choices=("all", "moex", "bybit", "hyperliquid"), default="all")
     parser.add_argument("--limit", type=int, help="Maximum instruments per selected source (smoke/performance testing).")
     parser.add_argument("--refresh-cache", action="store_true", help="Ignore cached reads and replace cache entries.")
@@ -33,6 +34,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--limit must be positive")
     if args.refresh_cache and args.no_cache:
         parser.error("--refresh-cache and --no-cache are mutually exclusive")
+    if args.profile == "intraday" and (args.limit is not None or args.as_of or args.source not in {"all", "bybit"}):
+        parser.error("INTRADAY uses the complete live Bybit universe; --limit, --as-of and other sources are unsupported")
     cancellation_token = CancellationToken(
         lambda: print("Cancellation requested. Stopping active work...", flush=True)
     )
@@ -49,6 +52,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             level=getattr(logging, config.general.log_level.upper(), logging.INFO),
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         )
+        if args.profile == "intraday":
+            from .intraday.pipeline import run_intraday
+
+            report = run_intraday(config, root, refresh_cache=args.refresh_cache,
+                                  no_cache=args.no_cache, cancellation_token=cancellation_token)
+            print(f"Snapshot: {report['snapshot_id']}\nCurrent: {root / 'output/intraday/current'}", flush=True)
+            print(f"Counts: {report['counts']}\nElapsed: {report['elapsed_seconds']}", flush=True)
+            return 0
         report = run_pipeline(
             config,
             root,

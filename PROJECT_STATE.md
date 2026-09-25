@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-09-12 (Europe/Moscow).
+Last updated: 2026-09-25 (Europe/Moscow).
 
 ## Implemented
 
@@ -98,3 +98,33 @@ Last updated: 2026-09-12 (Europe/Moscow).
 ## Recommended next test
 
 On the local Windows environment where the production snapshot is generated, run the ordinary builder once after deploying the accepted metadata change, then verify the new columns against a real current `catalog.csv` / `latest_snapshot.csv`. Specifically confirm GZU6→GAZP, SRU6→SBER, MXU6/MXZ6→IMOEX, non-empty dated expiries, MXU6 liquidity rank ahead of MXZ6, exact READY/catalog/latest-snapshot parity, and unchanged run-report counts. Network live checks remain optional diagnostics and do not redefine mapping authority.
+
+
+## APX / INTRADAY profile implementation (2026-09-25)
+
+- Base: main 264eae744a255a2318b148b3990e8d9d09722d26; clean status confirmed before edits.
+- Development: feature/intraday-profile in C:\Python\MarketDataCSVBuilder_intraday_work.
+- Python 3.11 .venv created in worktree. Existing pandas/pytest requirements only; no new dependencies.
+- Baseline offline suite: 62 passed, 3 deselected. Expanded suite: 93 passed, 3 deselected (22.78 s).
+- APX source adapters, feature engine, CSV schemas and default profile remain unchanged.
+- Actual APX snapshot inspected: 20260924T162059Z, 192 READY, 2055 discovered, 64 failed;
+  original output/current is not modified during development.
+- INTRADAY: shared 29 features, 999-bar warm-up audited/tested, Wilder ATR(14), returns,
+  public metadata/ticker discovery, all five TFs, completed-only cache, bounded concurrency,
+  shared Bybit limiter/retry feedback, final all-TF refresh, validated publication with rollback.
+- Deterministic coverage: metadata/threshold boundaries/no TOP-N, pagination >1000, cache
+  separation/reuse/refresh/no-cache, 1200+1 export, short/missing-current data, feature parity,
+  full-vs-tail parity, ATR seed/smoothing/provisional, failure isolation, screening/raw consistency,
+  rollback/non-publication, HTTP 429 and Bybit 10006 recovery/exhaustion, APX CLI dispatch.
+- Initial live attempt discovered 885 contracts / 101 eligible, but repeated TLS timeouts on
+  fallback api.bytick.com made progress unsuitable. Stopped before publication; closed cache retained.
+  Direct diagnostic: api.bybit.com ticker 0.74 s; api.bytick.com TLS timeout at 12 s.
+  Fixed retry host selection: transient timeout/10006 retry same host, fallback only for 403.
+- Full live acceptance and integration evidence will be recorded after completion.
+
+- Separate APX live smoke (public network, process-local proxy bypass): Bybit PASS,
+  Hyperliquid PASS; MOEX blocked by repeated TLS handshake timeout (3 attempts).
+  Result: 2 passed, 1 network failure, 93 deselected; 141.36 s. Same MOEX connectivity
+  limitation is documented in earlier project evidence; MOEX code was not changed.
+- Local system proxy was identified as a latency source. INTRADAY now defaults to
+  direct HTTPS; use_system_proxy=true is available without changing OS/APX settings.

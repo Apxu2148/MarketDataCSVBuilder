@@ -52,3 +52,22 @@ perp_dexes = []
 exclude_perp_dexes = []
 rate_limit_safety_fraction = 0.80
 rate_limit_default_cooldown_seconds = 60
+
+[intraday]
+source = "bybit"
+category = "linear"
+quote_coin = "USDT"
+settle_coin = "USDT"
+min_turnover24h_usdt = 10_000_000
+timeframes = ["1D", "4H", "1H", "15m", "5m"]
+closed_bars = 1200
+atr_period = 14
+request_timeout = 30
+concurrency = 4
+max_retries = 4
+backoff_base = 1
+backoff_max = 30
+jitter = 0.25
+requests_per_second = 5
+refresh_cache = false
+use_system_proxy = false

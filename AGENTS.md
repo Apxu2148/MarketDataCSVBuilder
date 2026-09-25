@@ -1,11 +1,11 @@
 # Agent Instructions
 
-This repository is the independent, deliberately small daily CSV builder for MOEX, Bybit and Hyperliquid.
+This repository is one CSV builder with APX (daily MOEX, Bybit, Hyperliquid) and INTRADAY (public Bybit Linear USDT Perpetual) profiles.
 
 - Reference projects are `C:\Python\MOEXPortfolioBuilder`, `C:\Python\BybitPortfolioBuilder`, `C:\Python\HyperliquidPortfolioBuilder`, and `C:\Python\MarketDataVault`; treat all four as strictly read-only.
-- Use Python 3.11 and install dependencies only into this project's `venv` via `setup.bat` or `venv\Scripts\python.exe -m pip`.
+- Use Python 3.11 and install dependencies only into this project's `.venv` via `setup.bat` or `.venv\Scripts\python.exe -m pip`. Legacy `run.bat` also supports the existing `venv`.
 - Never install packages globally and never perform destructive or state-changing Git/GitHub operations without an explicit user command.
-- Preserve the v1 scope: discovery -> closed-bar liquidity filter -> 1D OHLCV download -> exactly 29 MarketDataVault features -> CSV snapshot. Do not add UI, database, DuckDB, server/API, other timeframes, portfolio logic, Google integrations, or extra APX indicators.
+- Preserve APX: discovery -> closed-bar liquidity filter -> 1D OHLCV download -> exactly 29 MarketDataVault features -> CSV snapshot. INTRADAY alone supports 1D/4H/1H/15m/5m, rolling turnover24h eligibility, the shared 29 features plus ATR/returns, and isolated output/cache. Do not add UI, database, server/API, portfolio/trading logic, Google integrations, or extra APX indicators.
 - Preserve anti-look-ahead, current-candle provisional semantics, metadata-based Bybit contract typing, Hyperliquid multi-DEX isolation, source-specific turnover semantics, deterministic structural JSON, partial-failure isolation, and `_building`/`current`/`previous` publication.
 - Keep long live runs observable: flushed progress/heartbeat at least every 10-15 seconds, stage/source/counters/elapsed summaries, and immediate short per-symbol warnings.
 - Run the offline suite after substantive changes. Keep live tests separate and update `PROJECT_STATE.md` after meaningful offline/live/performance runs.

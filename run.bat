@@ -2,10 +2,12 @@
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
-if not exist "venv\Scripts\python.exe" (
+set "builder_python=.venv\Scripts\python.exe"
+if not exist "!builder_python!" set "builder_python=venv\Scripts\python.exe"
+if not exist "!builder_python!" (
     echo Local venv is missing. Run setup.bat first.
     exit /b 1
 )
 
-"venv\Scripts\python.exe" main.py %* & set "run_exit_code=!errorlevel!" & call;
+"!builder_python!" main.py %* & set "run_exit_code=!errorlevel!" & call;
 exit /b !run_exit_code!

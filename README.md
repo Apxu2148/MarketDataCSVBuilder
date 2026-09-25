@@ -1,10 +1,10 @@
 # MarketDataCSVBuilder
 
-MarketDataCSVBuilder discovers the currently available MOEX, Bybit and Hyperliquid universe, applies a configurable 30-closed-daily-bar liquidity filter, downloads daily history, calculates the 29 canonical MarketDataVault features, and publishes machine-readable CSV snapshots. It intentionally has no database, UI, server, REST API, scheduler, portfolio construction, or timeframe other than `1D`.
+MarketDataCSVBuilder discovers the currently available MOEX, Bybit and Hyperliquid universe, applies a configurable 30-closed-daily-bar liquidity filter, downloads daily history, calculates the 29 canonical MarketDataVault features, and publishes machine-readable CSV snapshots. It intentionally has no database, UI, server, REST API, scheduler, portfolio construction, or trading decision logic. One codebase supports the default `APX` profile and the `INTRADAY` profile described below.
 
 ## Setup (Python 3.11)
 
-Run `setup.bat`. It creates `C:\Python\MarketDataCSVBuilder\venv`, upgrades pip inside that environment, and installs `requirements.txt` only there. No global package installation is needed or supported.
+Run `setup.bat`. It creates `C:\Python\MarketDataCSVBuilder\.venv`, upgrades pip inside that environment, and installs `requirements.txt` only there. No global package installation is needed or supported.
 
 ## Run
 
@@ -69,8 +69,8 @@ For mapping metadata, MOEX discovery additionally reads venue `ASSETCODE` and `L
 ## Tests
 
 ```bat
-venv\Scripts\python.exe -m pytest
-venv\Scripts\python.exe -m pytest -m live
+.venv\Scripts\python.exe -m pytest
+.venv\Scripts\python.exe -m pytest -m live
 ```
 
 The ordinary suite is fully offline. Live tests are separately marked and skipped unless `MARKET_DATA_CSV_BUILDER_LIVE=1` is set. See `PROJECT_STATE.md` for the latest recorded offline, live and performance results.
@@ -83,3 +83,91 @@ The ordinary suite is fully offline. Live tests are separately marked and skippe
 - `C:\Python\MarketDataVault`
 
 They supplied verified source/discovery/retry/turnover patterns and the canonical feature specification. This project does not import from or modify them at runtime.
+
+## INTRADAY profile
+
+Run `setup.bat` with Python 3.11 to create the local `.venv`. Existing `run.bat`
+commands remain APX by default and can still use an existing legacy `venv`.
+
+```bat
+.venv\Scripts\python.exe main.py --profile apx
+.venv\Scripts\python.exe main.py --profile intraday
+run_apx.bat
+run_intraday.bat --refresh-cache
+```
+
+APX keeps its original sources, 1D feature schema and `output/current` workflow.
+INTRADAY uses only public Bybit Linear USDT Perpetual data and writes exclusively
+`output/intraday/current`. No credentials or trading API calls are used.
+
+Edit `[intraday]` in `config.toml`: change `min_turnover24h_usdt = 10_000_000` to
+`30_000_000` for a 10M -> 30M threshold. All active contracts meeting the initial
+rolling turnover24h threshold are included, without TOP-N. Remove entries from
+`timeframes` to disable a timeframe; `closed_bars` controls export depth;
+`concurrency`, `requests_per_second`, `request_timeout`, `max_retries`,
+`backoff_base`, `backoff_max` and `jitter` control network behavior. ATR period is
+validated as 14 to preserve the meaning of the atr_wilder_14 column.
+`--limit` and `--as-of` are rejected for INTRADAY because its universe is live.
+
+Five default timeframes are 1D, 4H, 1H, 15m and 5m, each with up to 1200 completed
+candles plus current provisional. All 29 existing features use the unchanged
+shared feature engine; Wilder ATR and 1/5/20-bar returns are additional INTRADAY fields.
+The 1000-bar maximum structural horizon requires 999 prior warm-up candles.
+ATR is seeded over this reproducible extended window (first TR=high-low); it is
+not an inception-anchored ATR. Final refresh updates all enabled TF tails, with 5m
+last, and a fresh bulk ticker/funding snapshot. Structural tail recalculation uses
+a 999-bar overlap; indicators use observed candles if a gap is flagged PARTIAL.
+
+Cache lives in `data/cache/intraday/v1/bybit/linear_perpetual/<symbol>/<TF>.json`.
+It stores only completed candles and refreshes current plus two recent closed bars.
+`--refresh-cache` bypasses saved history; `--no-cache` disables both reads and writes.
+Ticker, funding and instrument metadata are never served from the history cache.
+The centralized limiter defaults to five requests/second across four workers;
+HTTP 429, Bybit 10006, exponential backoff, jitter and reset headers share its cooldown.
+
+Snapshot files: `manifest.json`, `universe.csv`, `catalog.csv`, `latest_features.csv`,
+`run_report.json`, `README_INTRADAY_MARKET_DATA.md`, and `series/<symbol>/<TF>.csv`.
+Read the snapshot README and manifest first, then universe/latest_features. Use the
+catalog to load raw CSV only as needed. Full consumer rules are in
+[docs/APX_INTRADAY_MARKETDATA_CONSUMER.md](docs/APX_INTRADAY_MARKETDATA_CONSUMER.md).
+
+Each run builds in `.staging/<snapshot_id>`, validates CSV consistency, then replaces
+`current` with rollback on rename failure. The previous snapshot is retained as
+`previous_<snapshot_id>` for recovery; these backups may be removed manually after
+verification. Windows directory renames cannot provide a single atomic exchange;
+readers should copy only after the successful publication message. APX is isolated.
+
+If a run fails, inspect its staging `failure.json`; the previous valid current stays
+available. A series download/refresh failure appears in catalog/run_report; a failed
+bulk discovery or final ticker fetch aborts publication. Missing current candles and
+gaps are explicit. If a process was forcibly killed, check that no INTRADAY process
+is running before removing `output/intraday/.run.lock`. Ctrl+C is cooperative.
+Network 403 may indicate a Bybit network-location restriction; do not increase
+concurrency to fix it. Rates are deliberately conservative and configurable.
+INTRADAY defaults to direct HTTPS (`use_system_proxy = false`) because the local
+system proxy caused repeated TLS timeouts in live validation. Set this to `true`
+if your network requires its configured proxy. This affects only this profile's
+requests and never changes system settings or APX networking.
+
+After a successful run, copy the entire `output/intraday/current/` snapshot with
+replacement to Google Drive:
+`Apx Markets/01_INPUTS/marketdata/MarketDataCSVBuilder/intraday/current/`.
+The snapshot README is already inside it. Separately copy
+`docs/APX_INTRADAY_MARKETDATA_CONSUMER.md` to
+`Apx Markets/00_CONTROL/ROUTE_SPECS/APX_INTRADAY_MARKETDATA_CONSUMER.md`.
+The Builder does not modify Google Drive.
+
+Offline tests (temporary artifacts stay inside this project):
+
+```bat
+.venv\Scripts\python.exe -m pytest --basetemp=output/tests
+```
+
+Official V5 references checked during implementation:
+[kline](https://bybit-exchange.github.io/docs/v5/market/kline),
+[instruments](https://bybit-exchange.github.io/docs/v5/market/instrument),
+[tickers](https://bybit-exchange.github.io/docs/v5/market/tickers),
+[rate limits](https://bybit-exchange.github.io/docs/v5/rate-limit).
+Kline and instrument pages allow up to 1000 rows; klines paginate backward by end,
+metadata by cursor. Best bid/ask and funding are timestamped snapshots, not live
+execution guarantees. Full order book is deliberately absent.

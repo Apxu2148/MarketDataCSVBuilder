@@ -128,6 +128,12 @@ class WeightedRateLimiter:
                 waiting_threads=len(self._active_wait_started),
             )
 
+    def cooldown(self, seconds: float) -> None:
+        """Apply provider feedback without counting it as an HTTP 429."""
+        with self._condition:
+            self._cooldown_until = max(self._cooldown_until, time.monotonic() + max(0, seconds))
+            self._condition.notify_all()
+
     def _discard_expired(self, now: float) -> None:
         cutoff = now - self.window_seconds
         while self._events and self._events[0][0] <= cutoff:

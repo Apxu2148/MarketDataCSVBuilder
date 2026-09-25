@@ -78,6 +78,27 @@ class HyperliquidConfig:
 
 
 @dataclass(frozen=True)
+class IntradayConfig:
+    source: str = "bybit"
+    category: str = "linear"
+    quote_coin: str = "USDT"
+    settle_coin: str = "USDT"
+    min_turnover24h_usdt: float = 10_000_000
+    timeframes: list[str] = field(default_factory=lambda: ["1D", "4H", "1H", "15m", "5m"])
+    closed_bars: int = 1200
+    atr_period: int = 14
+    request_timeout: float = 30
+    concurrency: int = 4
+    max_retries: int = 4
+    backoff_base: float = 1
+    backoff_max: float = 30
+    jitter: float = 0.25
+    requests_per_second: float = 5
+    refresh_cache: bool = False
+    use_system_proxy: bool = False
+
+
+@dataclass(frozen=True)
 class AppConfig:
     general: GeneralConfig = field(default_factory=GeneralConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
@@ -85,6 +106,7 @@ class AppConfig:
     moex: MoexConfig = field(default_factory=MoexConfig)
     bybit: BybitConfig = field(default_factory=BybitConfig)
     hyperliquid: HyperliquidConfig = field(default_factory=HyperliquidConfig)
+    intraday: IntradayConfig = field(default_factory=IntradayConfig)
 
 
 T = TypeVar("T")
@@ -110,6 +132,7 @@ def load_config(path: Path) -> AppConfig:
     with path.open("rb") as handle:
         data = tomllib.load(handle)
     config = AppConfig(
+        intraday=_load(IntradayConfig, data, "intraday"),
         general=_load(GeneralConfig, data, "general"),
         cache=_load(CacheConfig, data, "cache"),
         http=_load(HttpConfig, data, "http"),
@@ -122,6 +145,25 @@ def load_config(path: Path) -> AppConfig:
 
 
 def validate_config(config: AppConfig) -> None:
+    import math
+
+    intraday = config.intraday
+    if (intraday.source, intraday.category, intraday.quote_coin, intraday.settle_coin) != ("bybit", "linear", "USDT", "USDT"):
+        raise ValueError("INTRADAY supports only Bybit linear USDT perpetuals")
+    if not intraday.timeframes or len(set(intraday.timeframes)) != len(intraday.timeframes) or set(intraday.timeframes) - {"1D", "4H", "1H", "15m", "5m"}:
+        raise ValueError("Invalid or duplicate intraday timeframes")
+    for name in ("closed_bars", "concurrency", "max_retries", "atr_period"):
+        value = getattr(intraday, name)
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"intraday.{name} must be a positive integer")
+    if intraday.atr_period != 14:
+        raise ValueError("atr_wilder_14 requires atr_period=14")
+    for name in ("min_turnover24h_usdt", "request_timeout", "requests_per_second", "backoff_base", "backoff_max", "jitter"):
+        value = getattr(intraday, name)
+        if not math.isfinite(value) or value < 0:
+            raise ValueError(f"Invalid intraday.{name}")
+    if intraday.request_timeout <= 0 or intraday.requests_per_second <= 0:
+        raise ValueError("Intraday timeout and request rate must be positive")
     positive = {
         "general.history_closed_bars": config.general.history_closed_bars,
         "general.compact_closed_bars": config.general.compact_closed_bars,
