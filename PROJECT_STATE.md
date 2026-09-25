@@ -151,3 +151,13 @@ On the local Windows environment where the production snapshot is generated, run
   tests. Rolling floating-point calculations agree within rtol=1e-10; original APX
   algorithms remain unchanged. This tolerance accounts for rolling variance rounding
   when the same engine calculates a shorter overlapping suffix.
+
+- Evening resume was blocked by Bybit HTTP 403 country restriction on both official
+  hosts, directly and through the existing system proxy. No fresh snapshot published.
+- Completed missing staged features offline: 298 files preserved, 201 added, 499 valid
+  series total; BCHUSDT/1D still absent due to invalid upstream OHLC. All 15 BTC/ETH/SUI
+  series checks including independent ATR passed. These checks do not establish freshness.
+- Latest offline suite: 96 passed, 3 deselected (35.31 s). Original APX current (401 files)
+  and previous (389 files) match their respective SHA-256 baselines.
+- Main remains clean at 264eae7; integration awaits successful live acceptance.
+  Full status, evidence paths and exact resume command: docs/INTRADAY_DELIVERY_REPORT.md.
