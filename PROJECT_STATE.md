@@ -183,3 +183,21 @@ On the local Windows environment where the production snapshot is generated, run
   baselines. Core APX modules/adapters unchanged; no new dependencies.
 - No push or Google Drive writes. Temporary worktree retained, safe to remove
   after delivery using git worktree remove. Final report: docs/INTRADAY_DELIVERY_REPORT.md.
+
+## Hyperliquid INTRADAY development (2026-09-27) — stage 1
+
+- Authorized separate worktree: C:\Python\MarketDataCSVBuilder_hyperliquid_work,
+  branch feature/hyperliquid-intraday; baseline main 10c1cd0, initially clean.
+- Original project code/config/output/cache/environment remain untouched during development.
+- Plan: (1) isolation and baseline; (2) public provider + cache + offline coverage;
+  (3) shared pipeline/profile/export + consumer documentation and regression tests;
+  (4) live smoke, full and repeated exports with measured performance;
+  (5) final integration only after acceptance, clean main and no running export.
+- Keep unchanged feature algorithms and APX adapters. Share INTRADAY computation,
+  refresh, validation and rollback. Hyperliquid uses separate config, cache and output.
+- API contract checked in official Hyperliquid docs: perpDexs, metaAndAssetCtxs,
+  spot metadata collateral identity, candleSnapshot, l2Book, precision and weights.
+- Never fabricate candle quote turnover, last trade, book top, or collateral identity.
+- Python 3.11 environment created inside worktree; dependency installation in progress.
+- Continuation: inspect git status and this section; finish baseline tests, then stage 2.
+- No intermediate merge; user's final-integration paragraph authorizes only tested delivery.
