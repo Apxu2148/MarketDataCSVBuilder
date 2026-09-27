@@ -1,0 +1,16 @@
+# Independent of APX/Bybit config.toml. No keys or account needed.
+[intraday_hyperliquid]
+min_turnover24h_usd = 10_000_000
+timeframes = ["1D", "4H", "1H", "15m", "5m"]
+closed_bars = 1200
+atr_period = 14
+concurrency = 4
+feature_workers = 4
+request_timeout = 30
+max_retries = 4
+backoff_base = 1
+backoff_max = 30
+jitter = 0.25
+rate_limit_safety_fraction = 0.80
+use_system_proxy = false
+refresh_cache = false

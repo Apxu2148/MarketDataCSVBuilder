@@ -28,10 +28,13 @@ def _calculate_worker(frame, previous=None, reuse_export=0):
 
 
 def run_intraday(config, root: Path, *, refresh_cache=False, no_cache=False,
-                 cancellation_token=None, client=None, resume_staging=None):
+                 cancellation_token=None, client=None, resume_staging=None, profile="intraday"):
+    if profile not in {"intraday", "intraday_hyperliquid"}:
+        raise ValueError("Invalid intraday profile")
     token = cancellation_token or CancellationToken()
-    settings = config.intraday
-    output = root / "output/intraday"
+    hyperliquid = profile == "intraday_hyperliquid"
+    settings = config.intraday_hyperliquid if hyperliquid else config.intraday
+    output = root / "output" / profile
     output.mkdir(parents=True, exist_ok=True)
     if resume_staging is not None:
         resume_staging = Path(resume_staging).resolve()
@@ -42,17 +45,24 @@ def run_intraday(config, root: Path, *, refresh_cache=False, no_cache=False,
     with lock.open("x", encoding="utf-8") as handle:
         handle.write(now_iso())
     try:
-        return _run(config, root, token, client or BybitPublicClient(config, token),
-                    refresh_cache or settings.refresh_cache, no_cache, resume_staging)
+        if client is None:
+            if hyperliquid:
+                from .hyperliquid import HyperliquidPublicClient
+                client = HyperliquidPublicClient(config, token)
+            else:
+                client = BybitPublicClient(config, token)
+        return _run(config, root, token, client,
+                    refresh_cache or settings.refresh_cache, no_cache, resume_staging, profile)
     finally:
         lock.unlink(missing_ok=True)
 
 
-def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=None):
+def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=None, profile="intraday"):
     start_clock, started = time.perf_counter(), now_iso()
     snapshot = started.replace(":", "").replace("-", "").replace("+0000", "Z") + "_" + uuid.uuid4().hex[:8]
-    settings = config.intraday
-    output = root / "output/intraday"
+    hyperliquid = profile == "intraday_hyperliquid"
+    settings = config.intraday_hyperliquid if hyperliquid else config.intraday
+    output = root / "output" / profile
     staging = output / ".staging" / snapshot
     staging.mkdir(parents=True)
     print(f"INTRADAY snapshot={snapshot}", flush=True)
@@ -60,7 +70,16 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
         history_download=0.0, history_download_by_timeframe={}, final_refresh=0.0,
         feature_calculation=0.0, export=0.0, validation=0.0, total=0.0)
     failures = []
-    store = CandleStore(root, client, token, config.cache.enabled and not no_cache, refresh_cache)
+    store_class = CandleStore
+    if hyperliquid:
+        from .hyperliquid import HyperliquidCandleStore, eligible_hyperliquid
+        store_class = HyperliquidCandleStore
+    store = store_class(root, client, token, config.cache.enabled and not no_cache, refresh_cache)
+    threshold = settings.min_turnover24h_usd if hyperliquid else settings.min_turnover24h_usdt
+    select = eligible_hyperliquid if hyperliquid else eligible_instruments
+    universe_columns = UNIVERSE_COLUMNS
+    if hyperliquid:
+        from .hyperliquid_export import UNIVERSE_COLUMNS as universe_columns, universe_row as hl_universe_row
     feature_pool = ProcessPoolExecutor(max_workers=settings.feature_workers) if settings.feature_workers > 1 else None
 
     def compute(frame, previous=None, reuse_export=0):
@@ -104,9 +123,11 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
         initial = single(client.tickers, "ticker snapshot")
         eligibility_at = now_iso()
         timings["ticker_snapshot"] = time.perf_counter() - stage
-        eligible = eligible_instruments(instruments, initial, settings.min_turnover24h_usdt)
+        eligible = select(instruments, initial, threshold)
+        if hyperliquid:
+            client.selected = [item["symbol"] for item in eligible]
         timings["discovery"] = timings["instrument_metadata"] + timings["ticker_snapshot"]
-        print(f"INTRADAY discovered={len(instruments)} eligible={len(eligible)} threshold={settings.min_turnover24h_usdt}", flush=True)
+        print(f"INTRADAY discovered={len(instruments)} eligible={len(eligible)} threshold={threshold}", flush=True)
         histories, calculated, fetched, refreshed, errors = {}, {}, {}, {}, {}
         timeframes = sorted(settings.timeframes, key=lambda tf: -TIMEFRAMES[tf][1])
 
@@ -136,7 +157,7 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
                 path = resume_staging / "series" / safe_path_component(key[0]) / (key[1] + ".csv")
                 if path.is_file():
                     try:
-                        reusable[key] = load_reusable_series(path, *key)
+                        reusable[key] = load_reusable_series(path, *key, source="hyperliquid" if hyperliquid else "bybit")
                     except Exception as exc:
                         resume_rejections.append(dict(symbol=key[0], timeframe=key[1], reason=str(exc)))
             print(f"INTRADAY resume: {len(reusable)} validated staged series reused; {len(resume_rejections)} rejected", flush=True)
@@ -199,15 +220,17 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
                     try:
                         frame = slice_closed_and_current(frame, settings.closed_bars)
                         frame["snapshot_id"] = snapshot
-                        for name, value in dict(source="bybit", market="linear_perpetual", symbol=key[0],
-                            instrument_name=item.get("displayName") or key[0], contract_type="LinearPerpetual",
-                            dex="", quote_currency="USDT", turnover_currency="USDT", timeframe=tf).items():
+                        for name, value in dict(source="hyperliquid" if hyperliquid else "bybit", market="perpetual" if hyperliquid else "linear_perpetual", symbol=key[0],
+                            instrument_name=item.get("displayName") or key[0], contract_type=item["contractType"],
+                            dex=item.get("dex", ""), quote_currency=item["quoteCoin"], turnover_currency=item["quoteCoin"], timeframe=tf).items():
                             frame[name] = value
                         closed = frame.loc[frame.is_closed]
                         current = frame.loc[frame.provisional]
                         gaps = int((frame.timestamp.diff().dropna() > pd.Timedelta(milliseconds=TIMEFRAMES[tf][1])).sum())
                         relative = Path("series") / safe_path_component(key[0]) / (tf + ".csv")
                         serialized = serialize(frame)
+                        if hyperliquid:
+                            serialized["turnover"] = serialized.turnover.fillna("N/A")
                         write_csv(staging / relative, serialized, SERIES_COLUMNS)
                         entry.update(status="PARTIAL" if partial or gaps else "READY", relative_path=relative.as_posix(),
                             closed_bars=len(closed), has_1200_closed_bars=str(len(closed) >= 1200).lower(),
@@ -234,8 +257,8 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
         if any(item["symbol"] not in tickers for item in eligible):
             raise ValueError("Final ticker snapshot missing eligible instruments")
         timings["final_refresh"] = time.perf_counter() - refresh_start
-        universe = [universe_row(item, tickers[item["symbol"]], initial[item["symbol"]], snapshot,
-            settings.min_turnover24h_usdt, metadata_at, ticker_at, eligibility_at) for item in eligible]
+        universe = [(hl_universe_row if hyperliquid else universe_row)(item, tickers[item["symbol"]], initial[item["symbol"]], snapshot,
+            threshold, metadata_at, ticker_at, eligibility_at) for item in eligible]
         catalog.sort(key=lambda row: (row["symbol"], timeframes.index(row["timeframe"])))
         latest.sort(key=lambda row: (row["symbol"], timeframes.index(row["timeframe"]), row["candle_state"]))
         counts = Counter(row["status"] for row in catalog)
@@ -251,11 +274,12 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
         completed = now_iso()
         for row in catalog:
             row["generated_at_utc"] = completed
-        manifest = dict(schema_version="1.0", builder_version="2.0", git_commit=commit, profile="intraday",
+        manifest = dict(schema_version="1.0", builder_version="2.0", git_commit=commit, profile=profile,
             resumed_from_snapshot=resume_staging.name if resume_staging else None, reused_series_count=reused_series_count,
             snapshot_id=snapshot, started_at_utc=started, completed_at_utc=completed,
-            final_refresh_at_utc=ticker_at, provider="bybit", market="linear_perpetual", quote_or_settle="USDT",
-            liquidity_filter=dict(field="turnover24h", threshold_usdt=settings.min_turnover24h_usdt,
+            final_refresh_at_utc=ticker_at, provider="hyperliquid" if hyperliquid else "bybit", market="perpetual" if hyperliquid else "linear_perpetual",
+            quote_or_settle="per-instrument metadata" if hyperliquid else "USDT",
+            liquidity_filter=dict(field="turnover24h", threshold_usdt=threshold,
                                   eligibility_at_utc=eligibility_at), timeframes=timeframes,
             requested_closed_bars=settings.closed_bars, warmup_bars=WARMUP_BARS,
             features=list(FEATURE_IDS), additional_features=["atr_wilder_14", *RETURNS],
@@ -266,9 +290,13 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
             freshness=dict(policy="per-series fetch timestamps; consumer methodology defines allowed age",
                            earliest_final_refresh_at_utc=min(refreshed.values(), default=None), latest_final_refresh_at_utc=max(refreshed.values(), default=None)),
             paths={name: name for name in ("universe.csv", "catalog.csv", "latest_features.csv", "run_report.json", "series/")})
+        if hyperliquid:
+            manifest["liquidity_filter"] = dict(field="dayNtlVlm", threshold_usd=threshold, eligibility_at_utc=eligibility_at)
+            manifest["dexes"] = client.dexes
+            manifest["candle_turnover_policy"] = "N/A when absent; never close times volume"
         applicable = sum((i.get("status"), i.get("contractType"), i.get("quoteCoin"), i.get("settleCoin")) ==
                          ("Trading", "LinearPerpetual", "USDT", "USDT") for i in instruments)
-        report = dict(profile="intraday", snapshot_id=snapshot, started_at_utc=started, completed_at_utc=completed,
+        report = dict(profile=profile, snapshot_id=snapshot, started_at_utc=started, completed_at_utc=completed,
             resumed_from_snapshot=resume_staging.name if resume_staging else None,
             reused_series_count=reused_series_count, resume_rejections=resume_rejections,
             config_summary=dict(cache_enabled=store.enabled, refresh_cache=store.refresh,
@@ -276,15 +304,18 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
                 feature_workers=settings.feature_workers,
                 use_system_proxy=settings.use_system_proxy, max_retries=settings.max_retries,
                 request_timeout=settings.request_timeout),
-            counts=dict(discovered=len(instruments), eligible=len(eligible), rejected_by_liquidity=applicable-len(eligible),
+            counts=dict(discovered=len(instruments), eligible=len(eligible), rejected_by_liquidity=(len(instruments) if hyperliquid else applicable)-len(eligible),
                 ready_symbols=symbol_counts["READY"], partial_symbols=symbol_counts["PARTIAL"], failed_symbols=symbol_counts["FAILED"],
                 successful_series=counts["READY"]+counts["PARTIAL"], partial_series=counts["PARTIAL"], failed_series=counts["FAILED"]),
             counts_by_timeframe={tf: dict(Counter(row["status"] for row in catalog if row["timeframe"] == tf)) for tf in timeframes},
             failures=failures, elapsed_seconds=timings, **client.metrics())
         write_csv(staging / "catalog.csv", catalog, CATALOG_COLUMNS)
-        write_csv(staging / "universe.csv", universe, UNIVERSE_COLUMNS)
+        write_csv(staging / "universe.csv", universe, universe_columns)
         write_csv(staging / "latest_features.csv", latest, LATEST_COLUMNS)
-        consumer = (root / "docs/APX_INTRADAY_MARKETDATA_CONSUMER.md").read_text(encoding="utf-8")
+        consumer_file = "APX_HYPERLIQUID_INTRADAY_CONSUMER.md" if hyperliquid else "APX_INTRADAY_MARKETDATA_CONSUMER.md"
+        consumer = (root / "docs" / consumer_file).read_text(encoding="utf-8")
+        if hyperliquid:
+            report["book_errors"] = client.book_errors
         write_json(staging / "manifest.json", manifest)
         write_json(staging / "run_report.json", report)
         (staging / "README_INTRADAY_MARKET_DATA.md").write_text(snapshot_readme(manifest, consumer), encoding="utf-8")

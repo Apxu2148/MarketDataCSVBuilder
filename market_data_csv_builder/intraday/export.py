@@ -75,13 +75,13 @@ def calculate(frame, token, previous=None, reuse_export=0):
     return result
 
 
-def load_reusable_series(path, symbol, timeframe):
+def load_reusable_series(path, symbol, timeframe, source="bybit"):
     """Validate a staged series before reusing its already computed feature prefix."""
     frame = pd.read_csv(path, float_precision="round_trip")
     if frame.empty or set(SERIES_COLUMNS) - set(frame.columns):
         raise ValueError("Incomplete staged CSV/schema")
     for column, expected in (("symbol", symbol), ("timeframe", timeframe),
-                             ("source", "bybit"), ("market", "linear_perpetual")):
+                             ("source", source), ("market", "perpetual" if source == "hyperliquid" else "linear_perpetual")):
         if not frame[column].eq(expected).all():
             raise ValueError("Staged series identity mismatch")
     frame["timestamp"] = pd.to_datetime(frame.timestamp, utc=True, errors="raise")
@@ -95,6 +95,10 @@ def load_reusable_series(path, symbol, timeframe):
     if frame.provisional.any() and not frame.iloc[-1].provisional:
         raise ValueError("Provisional staged candle must be last")
     numbers = frame[["open", "high", "low", "close", "volume", "turnover"]]
+    if source == "hyperliquid":
+        if not numbers.turnover.dropna().map(math.isfinite).all() or (numbers.turnover.dropna() < 0).any():
+            raise ValueError("Invalid staged turnover")
+        numbers = numbers.drop(columns="turnover")
     if not numbers.map(math.isfinite).all().all() or (numbers.iloc[:, :4] <= 0).any().any() or (numbers.iloc[:, 4:] < 0).any().any():
         raise ValueError("Invalid staged OHLCV")
     if (frame.high < frame[["open", "low", "close"]].max(axis=1)).any() or (frame.low > frame[["open", "high", "close"]].min(axis=1)).any():
@@ -173,7 +177,7 @@ def validate_snapshot(directory: Path):
     manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
     report = json.loads((directory / "run_report.json").read_text(encoding="utf-8"))
     snapshot = manifest["snapshot_id"]
-    if manifest["profile"] != "intraday" or report["snapshot_id"] != snapshot:
+    if manifest["profile"] not in {"intraday", "intraday_hyperliquid"} or report["snapshot_id"] != snapshot:
         raise ValueError("Snapshot identity mismatch")
     catalog = read_csv(directory / "catalog.csv")
     universe = read_csv(directory / "universe.csv")
@@ -215,7 +219,10 @@ def validate_snapshot(directory: Path):
         for row in rows:
             if row["snapshot_id"] != snapshot or row["symbol"] != entry["symbol"] or row["timeframe"] != entry["timeframe"]:
                 raise ValueError("Series identity mismatch")
-            o, h, l, c, volume, turnover = [float(row[name]) for name in ("open", "high", "low", "close", "volume", "turnover")]
+            values = dict(row)
+            if manifest["profile"] == "intraday_hyperliquid" and values["turnover"] == "N/A":
+                values["turnover"] = "0"  # validation only; serialized unknown stays N/A
+            o, h, l, c, volume, turnover = [float(values[name]) for name in ("open", "high", "low", "close", "volume", "turnover")]
             if not all(math.isfinite(value) for value in (o, h, l, c, volume, turnover)) or min(o,h,l,c) <= 0 or min(volume,turnover) < 0 or h < max(o,l,c) or l > min(o,h,c):
                 raise ValueError("Invalid serialized OHLCV")
             state = (row["is_closed"], row["provisional"])
@@ -273,6 +280,9 @@ def publish(staging, output_root, snapshot):
 
 
 def snapshot_readme(manifest, consumer):
+    if manifest["profile"] == "intraday_hyperliquid":
+        return (f"# Hyperliquid INTRADAY snapshot\n\nSnapshot: {manifest['snapshot_id']}\n"
+                f"Completed UTC: {manifest['completed_at_utc']}\n\n" + consumer)
     return f"""# INTRADAY market data snapshot
 
 Snapshot: {manifest['snapshot_id']}

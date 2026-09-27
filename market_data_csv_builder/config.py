@@ -100,6 +100,17 @@ class IntradayConfig:
 
 
 @dataclass(frozen=True)
+class HyperliquidIntradayConfig(IntradayConfig):
+    source: str = "hyperliquid"
+    category: str = "perpetual"
+    quote_coin: str = ""
+    settle_coin: str = ""
+    min_turnover24h_usd: float = 10_000_000
+    base_url: str = "https://api.hyperliquid.xyz"
+    rate_limit_safety_fraction: float = 0.80
+
+
+@dataclass(frozen=True)
 class AppConfig:
     general: GeneralConfig = field(default_factory=GeneralConfig)
     cache: CacheConfig = field(default_factory=CacheConfig)
@@ -108,6 +119,7 @@ class AppConfig:
     bybit: BybitConfig = field(default_factory=BybitConfig)
     hyperliquid: HyperliquidConfig = field(default_factory=HyperliquidConfig)
     intraday: IntradayConfig = field(default_factory=IntradayConfig)
+    intraday_hyperliquid: HyperliquidIntradayConfig = field(default_factory=HyperliquidIntradayConfig)
 
 
 T = TypeVar("T")
@@ -133,6 +145,7 @@ def load_config(path: Path) -> AppConfig:
     with path.open("rb") as handle:
         data = tomllib.load(handle)
     config = AppConfig(
+        intraday_hyperliquid=_load(HyperliquidIntradayConfig, data, "intraday_hyperliquid"),
         intraday=_load(IntradayConfig, data, "intraday"),
         general=_load(GeneralConfig, data, "general"),
         cache=_load(CacheConfig, data, "cache"),
@@ -148,6 +161,27 @@ def load_config(path: Path) -> AppConfig:
 def validate_config(config: AppConfig) -> None:
     import math
 
+    hl = config.intraday_hyperliquid
+    if hl.source != "hyperliquid" or hl.category != "perpetual" or hl.quote_coin or hl.settle_coin:
+        raise ValueError("Hyperliquid currencies come from venue metadata")
+    if not math.isfinite(hl.min_turnover24h_usd) or hl.min_turnover24h_usd < 0:
+        raise ValueError("Invalid Hyperliquid liquidity threshold")
+    if not 0.1 <= hl.rate_limit_safety_fraction <= 1:
+        raise ValueError("Hyperliquid rate safety fraction must be in [0.1, 1]")
+    if hl.closed_bars + 999 + 1 > 5000:
+        raise ValueError("Hyperliquid API retains at most 5000 candles including warm-up")
+    if not hl.timeframes or len(set(hl.timeframes)) != len(hl.timeframes) or set(hl.timeframes) - {"1D", "4H", "1H", "15m", "5m"}:
+        raise ValueError("Invalid Hyperliquid timeframes")
+    for name in ("closed_bars", "concurrency", "feature_workers", "atr_period"):
+        if type(getattr(hl, name)) is not int or getattr(hl, name) <= 0:
+            raise ValueError(f"Invalid Hyperliquid {name}")
+    if hl.atr_period != 14 or type(hl.max_retries) is not int or hl.max_retries < 0:
+        raise ValueError("Invalid Hyperliquid ATR/retries")
+    for name in ("request_timeout", "backoff_base", "backoff_max", "jitter"):
+        if not math.isfinite(getattr(hl, name)) or getattr(hl, name) < 0:
+            raise ValueError(f"Invalid Hyperliquid {name}")
+    if hl.request_timeout <= 0:
+        raise ValueError("Hyperliquid timeout must be positive")
     intraday = config.intraday
     if (intraday.source, intraday.category, intraday.quote_coin, intraday.settle_coin) != ("bybit", "linear", "USDT", "USDT"):
         raise ValueError("INTRADAY supports only Bybit linear USDT perpetuals")

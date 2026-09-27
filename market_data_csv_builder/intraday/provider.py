@@ -165,8 +165,11 @@ def eligible_instruments(instruments, tickers, threshold):
 
 class CandleStore:
     """Versioned, completed-only cache, independent of APX's HTTP cache."""
+    cache_namespace = "intraday/v1/bybit/linear_perpetual"
+    nullable_turnover = False
+
     def __init__(self, root: Path, client, token, enabled=True, refresh=False):
-        self.directory = root / "data/cache/intraday/v1/bybit/linear_perpetual"
+        self.directory = root / "data/cache" / self.cache_namespace
         self.client, self.token = client, token
         self.enabled, self.refresh = enabled, refresh
 
@@ -194,6 +197,8 @@ class CandleStore:
         try:
             for row in cached:
                 ts = int(row[0])
+                if ts in rows:
+                    raise ValueError("Duplicate cached candle")
                 if ts < boundary and ts >= start:
                     rows[ts] = row
             self._frame(rows, duration, cutoff)
@@ -238,20 +243,22 @@ class CandleStore:
             self.token.raise_if_requested()
             path.parent.mkdir(parents=True, exist_ok=True)
             payload = {"symbol": symbol, "timeframe": timeframe,
-                       "rows": [rows[stamp] for stamp in sorted(rows) if stamp + duration <= cutoff]}
+                       "rows": [[None if value is None or (isinstance(value, float) and math.isnan(value)) else value for value in rows[stamp]]
+                                for stamp in sorted(rows) if stamp + duration <= cutoff]}
             temporary = path.with_suffix(".tmp")
             temporary.write_text(json.dumps(payload, allow_nan=False), encoding="utf-8")
             temporary.replace(path)
         return frame, now_iso()
 
-    @staticmethod
-    def _frame(rows, duration, cutoff):
+    @classmethod
+    def _frame(cls, rows, duration, cutoff):
         frame = pd.DataFrame([rows[key] for key in sorted(rows)], columns=RAW_COLUMNS)
         if frame.empty:
             return frame
         for name in RAW_COLUMNS:
             frame[name] = pd.to_numeric(frame[name], errors="raise")
-        if not frame.map(math.isfinite).all().all():
+        required = frame.drop(columns="turnover") if cls.nullable_turnover else frame
+        if not required.map(math.isfinite).all().all() or not frame.turnover.dropna().map(math.isfinite).all():
             raise ValueError("Non-finite candle")
         invalid = (frame[["open", "high", "low", "close"]] <= 0).any(axis=1) | (frame[["volume", "turnover"]] < 0).any(axis=1)
         if invalid.any():

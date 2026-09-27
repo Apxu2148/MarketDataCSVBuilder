@@ -16,8 +16,8 @@ def build_parser(root: Path) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build APX daily or Bybit INTRADAY OHLCV and indicator CSV snapshots."
     )
-    parser.add_argument("--config", type=Path, default=root / "config.toml")
-    parser.add_argument("--profile", choices=("apx", "intraday"), default="apx")
+    parser.add_argument("--config", type=Path, default=None)
+    parser.add_argument("--profile", choices=("apx", "intraday", "intraday_hyperliquid"), default="apx")
     parser.add_argument("--resume-staging", type=Path, help="INTRADAY only: reuse validated series from an interrupted staging directory.")
     parser.add_argument("--source", choices=("all", "moex", "bybit", "hyperliquid"), default="all")
     parser.add_argument("--limit", type=int, help="Maximum instruments per selected source (smoke/performance testing).")
@@ -35,10 +35,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         parser.error("--limit must be positive")
     if args.refresh_cache and args.no_cache:
         parser.error("--refresh-cache and --no-cache are mutually exclusive")
-    if args.resume_staging and (args.profile != "intraday" or args.refresh_cache or args.no_cache):
+    if args.resume_staging and (args.profile not in {"intraday", "intraday_hyperliquid"} or args.refresh_cache or args.no_cache):
         parser.error("--resume-staging requires INTRADAY with its existing cache")
     if args.profile == "intraday" and (args.limit is not None or args.as_of or args.source not in {"all", "bybit"}):
         parser.error("INTRADAY uses the complete live Bybit universe; --limit, --as-of and other sources are unsupported")
+    if args.profile == "intraday_hyperliquid" and (args.limit is not None or args.as_of or args.source not in {"all", "hyperliquid"}):
+        parser.error("Hyperliquid INTRADAY uses the complete live universe without --limit or --as-of")
     cancellation_token = CancellationToken(
         lambda: print("Cancellation requested. Stopping active work...", flush=True)
     )
@@ -49,19 +51,20 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     signal.signal(signal.SIGINT, handle_sigint)
     try:
-        config_path = args.config if args.config.is_absolute() else (Path.cwd() / args.config)
+        config_arg = args.config or root / ("config_intraday_hyperliquid.toml" if args.profile == "intraday_hyperliquid" else "config.toml")
+        config_path = config_arg if config_arg.is_absolute() else (Path.cwd() / config_arg)
         config = load_config(config_path.resolve())
         logging.basicConfig(
             level=getattr(logging, config.general.log_level.upper(), logging.INFO),
             format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         )
-        if args.profile == "intraday":
+        if args.profile in {"intraday", "intraday_hyperliquid"}:
             from .intraday.pipeline import run_intraday
 
             report = run_intraday(config, root, refresh_cache=args.refresh_cache,
                                   no_cache=args.no_cache, cancellation_token=cancellation_token,
-                                  resume_staging=args.resume_staging)
-            print(f"Snapshot: {report['snapshot_id']}\nCurrent: {root / 'output/intraday/current'}", flush=True)
+                                  resume_staging=args.resume_staging, profile=args.profile)
+            print(f"Snapshot: {report['snapshot_id']}\nCurrent: {root / 'output' / args.profile / 'current'}", flush=True)
             print(f"Counts: {report['counts']}\nElapsed: {report['elapsed_seconds']}", flush=True)
             return 0
         report = run_pipeline(

@@ -201,3 +201,22 @@ On the local Windows environment where the production snapshot is generated, run
 - Python 3.11 environment created inside worktree; dependency installation in progress.
 - Continuation: inspect git status and this section; finish baseline tests, then stage 2.
 - No intermediate merge; user's final-integration paragraph authorizes only tested delivery.
+
+## Hyperliquid stage 2 — provider, isolated profile and shared pipeline
+
+- Baseline: 96 passed, 3 live deselected (35.54 s). First sandbox attempt lacked
+  output directory and Windows named-pipe permissions; corrected test environment.
+- Added public-only Hyperliquid client, all-DEX discovery, metadata collateral
+  identity, weighted limiter/retry and real l2Book top. No credentials/trading calls.
+- Shared INTRADAY pipeline now selects provider/profile; feature algorithms untouched.
+  New config_intraday_hyperliquid.toml and launcher; original config.toml untouched.
+- Completed-only cache has separate namespace and supports unknown candle turnover,
+  atomic file replacement, missing-range repair and duplicate corruption recovery.
+- Snapshot retains native dex:symbol, collateral/precision fields and N/A values.
+- First expanded offline suite: 106 passed, 3 deselected (41.82 s).
+- Public discovery check: 328 active, 36 >=10M, 28 native +7 xyz +1 io;
+  all 328 currently USDC; 24 requests, 480 weight, zero retries/429.
+- Additional collateral conversion now uses observed spot/USDC mid, fails closed
+  if unavailable; USDC is explicitly the USD-equivalent numeraire. Recheck pending.
+- Next: finalize acceptance tests/docs, live smoke and full/repeated runs in worktree.
+  No integration yet; original project remains operational.
