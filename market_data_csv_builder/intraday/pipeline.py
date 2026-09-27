@@ -324,6 +324,10 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
         consumer = (root / "docs" / consumer_file).read_text(encoding="utf-8")
         if hyperliquid:
             report["book_errors"] = client.book_errors
+            report["config_summary"].pop("requests_per_second")
+            report["config_summary"].update(rate_limit_safety_fraction=settings.rate_limit_safety_fraction,
+                weight_budget_per_minute=int(1200 * settings.rate_limit_safety_fraction),
+                min_turnover24h_usd=threshold)
         write_json(staging / "manifest.json", manifest)
         write_json(staging / "run_report.json", report)
         (staging / "README_INTRADAY_MARKET_DATA.md").write_text(snapshot_readme(manifest, consumer), encoding="utf-8")

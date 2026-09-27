@@ -141,11 +141,17 @@ def test_pipeline_snapshot_isolation_and_failure(tmp_path, fixed):
     directory = tmp_path/'output/intraday_hyperliquid/current'
     validate_snapshot(directory)
     assert report['counts']['successful_series'] == 3
+    assert report['snapshot_bytes'] == sum(p.stat().st_size for p in directory.rglob('*') if p.is_file())
     rows = read_csv(directory/'universe.csv')
     assert all(row['last_price'] == 'N/A' and row['tick_size'] == 'N/A' for row in rows)
     assert {row['dex'] for row in rows} == {'', 'xyz', 'other'}
     assert not (tmp_path/'output/intraday').exists()
     assert not (tmp_path/'data/cache/intraday').exists()
+    resume = tmp_path/'output/intraday_hyperliquid/.staging/reuse'
+    shutil.copytree(directory, resume)
+    resumed = run_intraday(config, tmp_path, client=FixtureClient(), profile='intraday_hyperliquid', resume_staging=resume)
+    assert resumed['reused_series_count'] == 3
+    validate_snapshot(directory)
     old = (directory/'manifest.json').read_bytes()
     client.broken = True
     with pytest.raises(ValueError, match='No successful series'):
@@ -194,6 +200,7 @@ def test_gap_pagination_does_not_stop_on_short_page(tmp_path, fixed):
     assert frame.iloc[0].timestamp.value//1000000 <= boundary - 2198*300000
     assert len(frame) > 1800
     assert not frame.timestamp.duplicated().any()
+    assert not list(tmp_path.rglob('*.json'))
 
 
 def test_publication_report_failure_rolls_back(tmp_path, monkeypatch):

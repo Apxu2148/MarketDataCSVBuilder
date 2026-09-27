@@ -187,6 +187,7 @@ def validate_snapshot(directory: Path):
         if row["snapshot_id"] != snapshot:
             raise ValueError("Mixed snapshot IDs")
     symbols = {row["symbol"] for row in universe}
+    identities = {row["symbol"]: row for row in universe}
     keys = {(row["symbol"], row["timeframe"]) for row in catalog}
     if len(symbols) != len(universe) or len(keys) != len(catalog) or keys != {(s, tf) for s in symbols for tf in manifest["timeframes"]}:
         raise ValueError("Invalid universe/catalog coverage")
@@ -220,6 +221,12 @@ def validate_snapshot(directory: Path):
         for row in rows:
             if row["snapshot_id"] != snapshot or row["symbol"] != entry["symbol"] or row["timeframe"] != entry["timeframe"]:
                 raise ValueError("Series identity mismatch")
+            if row["source"] != manifest["provider"] or row["market"] != manifest["market"]:
+                raise ValueError("Series venue mismatch")
+            if manifest["profile"] == "intraday_hyperliquid":
+                identity = identities[row["symbol"]]
+                if row["dex"] != identity["dex"] or row["quote_currency"] != identity["quote_coin"]:
+                    raise ValueError("Series DEX/currency mismatch")
             values = dict(row)
             if manifest["profile"] == "intraday_hyperliquid" and values["turnover"] == "N/A":
                 values["turnover"] = "0"  # validation only; serialized unknown stays N/A
@@ -281,10 +288,10 @@ def publish(staging, output_root, snapshot, report=None):
             temporary = current / "run_report.json.tmp"
             other_bytes = sum(path.stat().st_size for path in current.rglob("*")
                               if path.is_file() and path.name != "run_report.json")
-            for _ in range(4):
-                report["snapshot_bytes"] = other_bytes + len(json.dumps(report,
-                    indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False).encode("utf-8"))
             write_json(temporary, report)
+            for _ in range(4):
+                report["snapshot_bytes"] = other_bytes + temporary.stat().st_size
+                write_json(temporary, report)
             temporary.replace(current / "run_report.json")
     except BaseException:
         if current.exists() and not staging.exists():

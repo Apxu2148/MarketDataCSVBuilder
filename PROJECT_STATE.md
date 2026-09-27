@@ -236,3 +236,35 @@ On the local Windows environment where the production snapshot is generated, run
   ordinary cold/warm acceptance always uses the complete eligible universe.
 - Publication metrics and final-refresh worker timings are separate. No limiter
   algorithm changes. Full/repeated live acceptance and final integration remain pending.
+
+### Stage 4 in progress — continuation checkpoint
+
+- Full cold acceptance is running from f7aa3e3 in this worktree; log
+  output/hyperliquid_cold.log, wrapper session 42589. Do not start another Hyperliquid
+  run until it exits; each profile has its own .run.lock. Never delete a live lock.
+- Completed 1D/4H/1H/15m; downloading 5m as of 17:12 Moscow. 36 eligible contracts,
+  no series failures so far. Two transient TLS attempts, no 429.
+- Follow-up fixes in working tree (not loaded by the cold parent process): exact
+  Windows snapshot byte count, explicit weighted config report, venue/currency
+  snapshot validation. Added scripts/validate_hyperliquid.py and delivery report.
+- Tests with these fixes: 109 passed/3 deselected in 42.47 s; independently the
+  existing original venv (read-only, PYTHONDONTWRITEBYTECODE=1) passes 109/3 in 42.15 s.
+- Existing APX Bybit live PASS; MOEX TLS timeout remains baseline network limitation.
+  Bybit INTRADAY live BTCUSDT PASS, four requests, no retries.
+- After cold finishes: inspect report/failures, preserve output/hyperliquid_acceptance/cold.json;
+  record cold byte-count metadata limitation, commit fixes/state. Run warm acceptance
+  using scripts/accept_hyperliquid.py --label warm (redirect output/hyperliquid_warm.log).
+- Validate final snapshot with scripts/validate_hyperliquid.py (recomputes sampled
+  indicators from local history). Update delivery report/state with cold/warm metrics.
+- Integration only after acceptance: original main clean, no running exporter; record
+  SHA-256 inventory of existing output/cache/config/venv, fast-forward main to branch.
+  Copy ONLY new Hyperliquid current/cache if destination namespaces do not exist;
+  preserve every existing file and do NOT copy development environment. Verify hashes.
+  Four launchers must work; no push/Drive writes. Worktree may remain for evidence.
+
+### Continuation 2026-09-27
+
+- Prior process completed: cold snapshot 20260927T140210.586174Z_cb6a2b60, 180/180 READY, 1287.016 s, 478 requests, zero 429, 3 recovered TLS retries.
+- Cold validate_snapshot passes. Native/io/xyz samples across five TFs pass full recomputation at rtol/atol=1e-10; validation script then detects the known report-size discrepancy (141006995 reported versus 141007072 actual bytes). Cold artifacts retained unchanged.
+- Saved publication/config/venue validation fixes accepted: 109 passed, 3 live deselected, 55.46 s. Sandboxed run was 108 passed with one Windows named-pipe permission failure; unrestricted rerun passes.
+- Warm acceptance is next; main remains clean at 10c1cd0. User continuation explicitly authorizes final integration after checks.

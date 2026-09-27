@@ -14,7 +14,7 @@ from .utils import parse_as_of
 
 def build_parser(root: Path) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Build APX daily or Bybit INTRADAY OHLCV and indicator CSV snapshots."
+        description="Build APX daily, Bybit INTRADAY or Hyperliquid INTRADAY OHLCV and indicator CSV snapshots."
     )
     parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--profile", choices=("apx", "intraday", "intraday_hyperliquid"), default="apx")
