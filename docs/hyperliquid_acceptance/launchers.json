@@ -1,0 +1,18 @@
+﻿[
+    {
+        "launcher":  "run.bat",
+        "exit_code":  0
+    },
+    {
+        "launcher":  "run_apx.bat",
+        "exit_code":  0
+    },
+    {
+        "launcher":  "run_intraday.bat",
+        "exit_code":  0
+    },
+    {
+        "launcher":  "run_intraday_hyperliquid.bat",
+        "exit_code":  0
+    }
+]

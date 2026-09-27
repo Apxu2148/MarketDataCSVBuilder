@@ -1,6 +1,6 @@
 # Project State
 
-Last updated: 2026-09-25 (Europe/Moscow).
+Last updated: 2026-09-27 (Europe/Moscow).
 
 ## Implemented
 
@@ -278,3 +278,13 @@ On the local Windows environment where the production snapshot is generated, run
 - 15 native/io/xyz series recomputed with 29 features, ATR, returns: parity PASS at 1e-10. Cache: 195 files/370351 rows, no duplicate/grid/OHLC/provisional errors.
 - Original main remains clean, no exporter running. SHA-256 baseline protects 94759 existing files. Proceeding with user-authorized fast-forward and copying only new Hyperliquid current/cache namespaces; no old data or environment replacement.
 - Evidence: docs/hyperliquid_acceptance and docs/HYPERLIQUID_INTRADAY_DELIVERY.md.
+
+### Final integration completed (2026-09-27)
+
+- User-authorized clean-main fast-forward: 10c1cd0 -> 664e124, followed by final evidence commit. All three modes unified in C:\Python\MarketDataCSVBuilder.
+- New Hyperliquid current/cache copied only into absent namespaces: 386 files, 169703008 bytes, all SHA-256 matched. Existing environment reused; no dependency install.
+- All 94759 baseline files preserved byte-for-byte (1458 output, 85107 cache, 8188 venv, six config/launcher/setup/requirements files). Baseline inventory SHA-256: 7dcb97fc91a65164e9cffca3d45219575c76ee0cbcbff98421b83a7e0405ea9c.
+- Integrated original environment: 109 passed, 3 live deselected, 66.89 s. Four launchers --help exit 0; both Bybit and Hyperliquid current snapshots validate.
+- APX/Bybit offline regression PASS; their prior data/config/launchers intact. Existing APX Bybit and Bybit INTRADAY public live smokes PASS; MOEX retains the known TLS network limitation.
+- Final Hyperliquid snapshot completed at 2026-09-27 19:24:11 UTC (22:24:11 Moscow), all 185 series READY. Full cold 180-series snapshot, staging, cache and logs retained in worktree.
+- Final evidence committed under docs/hyperliquid_acceptance; report docs/HYPERLIQUID_INTRADAY_DELIVERY.md. No push or Drive writes. Development worktree deliberately retained.

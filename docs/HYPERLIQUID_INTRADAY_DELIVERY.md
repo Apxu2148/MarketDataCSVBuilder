@@ -85,6 +85,27 @@ Machine-readable evidence is in `docs/hyperliquid_acceptance/`. Local logs:
 `output/hyperliquid_cold.log`, `output/hyperliquid_smoke.log`, `output/legacy_live.log`,
 `output/bybit_intraday_live.log`, `output/offline_final.log`.
 
+## Integration completed
+
+User-authorized final integration fast-forwarded clean original `main` from
+`10c1cd0` to acceptance commit `664e124`, followed by the final evidence commit.
+All three profiles now live in `C:\Python\MarketDataCSVBuilder`.
+Only the new Hyperliquid current and cache namespaces were copied: 386 files,
+169703008 bytes, every file SHA-256 verified. No development environment was copied.
+All 94759 pre-existing output/cache/venv/config/launcher files remain byte-identical.
+Baseline inventory SHA-256:
+`7dcb97fc91a65164e9cffca3d45219575c76ee0cbcbff98421b83a7e0405ea9c`.
+The full inventory stays in worktree output; summary evidence is committed.
+
+Integrated project, existing Python 3.11 environment: **109 passed, 3 live deselected,
+66.89 seconds**. Four launchers `--help`: exit 0. Both existing Bybit and new
+Hyperliquid published snapshots validate in the original project.
+APX and Bybit regression coverage passes; original APX engine/adapters/config and
+existing data are unchanged. Existing APX Bybit and Bybit INTRADAY live smokes pass.
+MOEX live remains limited by the previously recorded TLS timeout; no claim of a
+successful MOEX live run is made. Hyperliquid native/io/xyz live smoke, full and
+cached runs pass. No push, Drive write or removal of staging/cache/logs was performed.
+
 ## Consumer handoff
 
 See `docs/APX_HYPERLIQUID_INTRADAY_CONSUMER.md` (also embedded in each current).
