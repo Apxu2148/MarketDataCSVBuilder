@@ -268,3 +268,13 @@ On the local Windows environment where the production snapshot is generated, run
 - Cold validate_snapshot passes. Native/io/xyz samples across five TFs pass full recomputation at rtol/atol=1e-10; validation script then detects the known report-size discrepancy (141006995 reported versus 141007072 actual bytes). Cold artifacts retained unchanged.
 - Saved publication/config/venue validation fixes accepted: 109 passed, 3 live deselected, 55.46 s. Sandboxed run was 108 passed with one Windows named-pipe permission failure; unrestricted rerun passes.
 - Warm acceptance is next; main remains clean at 10c1cd0. User continuation explicitly authorizes final integration after checks.
+
+### Stage 4 accepted — final integration ready
+
+- Warm snapshot 20260927T190753.421920Z_1f3cbadc completed 19:24:11 UTC: 185/185 READY, no partial/failures, 977.947 s versus cold 1287.016 s (1.316x; 24.0% less time). History 399.986 versus 676.883 s.
+- Universe changed: 34 common, AAVE/XMR/xyz:INTC entered, DASH/INJ exited liquidity filter. Cold 180 series remain in previous snapshot; warm has 37 instruments. This is a real-run comparison, not fixed-universe benchmark.
+- Warm: 531 requests, weight 12739, cumulative limiter wait 2492.540 s, 1 retry, zero 429/book errors. Cold: 478/16728/3462.376 s/3 retries/zero 429.
+- Final manifest/CSV/latest parity and exact 144561767-byte size PASS. Five TFs: no gaps or missing current. 5m oldest final fetch at publication 83.87 s; 1D 404.58 s.
+- 15 native/io/xyz series recomputed with 29 features, ATR, returns: parity PASS at 1e-10. Cache: 195 files/370351 rows, no duplicate/grid/OHLC/provisional errors.
+- Original main remains clean, no exporter running. SHA-256 baseline protects 94759 existing files. Proceeding with user-authorized fast-forward and copying only new Hyperliquid current/cache namespaces; no old data or environment replacement.
+- Evidence: docs/hyperliquid_acceptance and docs/HYPERLIQUID_INTRADAY_DELIVERY.md.

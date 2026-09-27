@@ -1,0 +1,80 @@
+{
+  "profile": "intraday_hyperliquid",
+  "snapshot_id": "20260927T190753.421920Z_1f3cbadc",
+  "started_at_utc": "2026-09-27T19:07:53.421920+00:00",
+  "completed_at_utc": "2026-09-27T19:24:11.361497+00:00",
+  "resumed_from_snapshot": null,
+  "reused_series_count": 0,
+  "resume_rejections": [],
+  "config_summary": {
+    "cache_enabled": true,
+    "refresh_cache": false,
+    "concurrency": 4,
+    "feature_workers": 4,
+    "use_system_proxy": false,
+    "max_retries": 4,
+    "request_timeout": 30,
+    "rate_limit_safety_fraction": 0.8,
+    "weight_budget_per_minute": 960,
+    "min_turnover24h_usd": 10000000
+  },
+  "counts": {
+    "discovered": 328,
+    "eligible": 37,
+    "rejected_by_liquidity": 291,
+    "ready_symbols": 37,
+    "partial_symbols": 0,
+    "failed_symbols": 0,
+    "successful_series": 185,
+    "partial_series": 0,
+    "failed_series": 0
+  },
+  "counts_by_timeframe": {
+    "1D": {
+      "READY": 37
+    },
+    "4H": {
+      "READY": 37
+    },
+    "1H": {
+      "READY": 37
+    },
+    "15m": {
+      "READY": 37
+    },
+    "5m": {
+      "READY": 37
+    }
+  },
+  "failures": [],
+  "elapsed_seconds": {
+    "discovery": 29.466080799989868,
+    "ticker_snapshot": 13.808565399987856,
+    "instrument_metadata": 15.657515400002012,
+    "history_download": 399.9859587000101,
+    "history_download_by_timeframe": {
+      "1D": 134.780116799986,
+      "4H": 85.42880920000607,
+      "1H": 64.75310000000172,
+      "15m": 55.80053430001135,
+      "5m": 59.22339840000495
+    },
+    "final_refresh": 402.70559440000216,
+    "feature_calculation": 141.98607850002008,
+    "export": 22.449386300169863,
+    "validation": 3.717835199990077,
+    "total": 977.9467542000348,
+    "final_refresh_network_worker_seconds": 1250.000632900017,
+    "final_refresh_feature_worker_seconds": 175.27205959983985,
+    "publication": 0.0023840000212658197
+  },
+  "rate_limit_wait_seconds": 2492.54,
+  "http_429_count": 0,
+  "requests_sent": 531,
+  "estimated_api_weight": 12739,
+  "waiting_threads": 0,
+  "retry_count": 1,
+  "rate_limit_events": 0,
+  "book_errors": [],
+  "snapshot_bytes": 144561767
+}

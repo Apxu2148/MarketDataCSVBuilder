@@ -1,0 +1,18 @@
+{
+  "cache_files": 195,
+  "cache_rows": 370351,
+  "duplicates": 0,
+  "invalid_ohlcv_or_grid": 0,
+  "provisional_cached": 0,
+  "retained_previous_symbols": 36,
+  "common_symbols": 34,
+  "added_symbols": [
+    "AAVE",
+    "XMR",
+    "xyz:INTC"
+  ],
+  "removed_symbols": [
+    "DASH",
+    "INJ"
+  ]
+}

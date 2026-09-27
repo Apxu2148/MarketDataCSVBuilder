@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -23,6 +24,15 @@ def main():
     manifest = json.loads((current/'manifest.json').read_text())
     report = json.loads((current/'run_report.json').read_text())
     catalog = read_csv(current/'catalog.csv')
+    completed = pd.Timestamp(manifest['completed_at_utc'])
+    freshness = {}
+    for tf in manifest['timeframes']:
+        entries = [row for row in catalog if row['timeframe'] == tf]
+        ages = [(completed-pd.Timestamp(row['final_refresh_at_utc'])).total_seconds() for row in entries]
+        assert min(ages) >= 0
+        freshness[tf] = dict(series=len(entries), oldest_fetch_age_at_publication_seconds=max(ages),
+            missing_current=sum(row['missing_current_bar'] == 'true' for row in entries),
+            provider_gap_count=sum(int(row['gap_count']) for row in entries))
     samples = {}
     for row in read_csv(current/'universe.csv'):
         samples.setdefault(row['dex'], row['symbol'])
@@ -45,7 +55,9 @@ def main():
         pd.testing.assert_frame_equal(actual[columns], recalculated.loc[actual.index, columns],
             check_dtype=False, rtol=1e-10, atol=1e-10)
         evidence.append(dict(symbol=symbol, timeframe=tf, rows=len(exported), feature_parity=True))
+        print(f'Parity PASS: {symbol} {tf}', flush=True)
     result = dict(snapshot_id=manifest['snapshot_id'], counts=report['counts'], samples=evidence,
+        checked_at_utc=datetime.now(timezone.utc).isoformat(), freshness=freshness,
         byte_count_matches=report['snapshot_bytes'] == sum(p.stat().st_size for p in current.rglob('*') if p.is_file()))
     assert result['byte_count_matches']
     destination = ROOT/'output/hyperliquid_acceptance/validation.json'

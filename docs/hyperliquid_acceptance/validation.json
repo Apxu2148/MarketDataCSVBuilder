@@ -1,0 +1,140 @@
+{
+  "snapshot_id": "20260927T190753.421920Z_1f3cbadc",
+  "counts": {
+    "discovered": 328,
+    "eligible": 37,
+    "failed_series": 0,
+    "failed_symbols": 0,
+    "partial_series": 0,
+    "partial_symbols": 0,
+    "ready_symbols": 37,
+    "rejected_by_liquidity": 291,
+    "successful_series": 185
+  },
+  "samples": [
+    {
+      "symbol": "AAVE",
+      "timeframe": "1D",
+      "rows": 1201,
+      "feature_parity": true
+    },
+    {
+      "symbol": "AAVE",
+      "timeframe": "4H",
+      "rows": 1201,
+      "feature_parity": true
+    },
+    {
+      "symbol": "AAVE",
+      "timeframe": "1H",
+      "rows": 1201,
+      "feature_parity": true
+    },
+    {
+      "symbol": "AAVE",
+      "timeframe": "15m",
+      "rows": 1201,
+      "feature_parity": true
+    },
+    {
+      "symbol": "AAVE",
+      "timeframe": "5m",
+      "rows": 1201,
+      "feature_parity": true
+    },
+    {
+      "symbol": "io:SNDK",
+      "timeframe": "1D",
+      "rows": 40,
+      "feature_parity": true
+    },
+    {
+      "symbol": "io:SNDK",
+      "timeframe": "4H",
+      "rows": 236,
+      "feature_parity": true
+    },
+    {
+      "symbol": "io:SNDK",
+      "timeframe": "1H",
+      "rows": 942,
+      "feature_parity": true
+    },
+    {
+      "symbol": "io:SNDK",
+      "timeframe": "15m",
+      "rows": 1201,
+      "feature_parity": true
+    },
+    {
+      "symbol": "io:SNDK",
+      "timeframe": "5m",
+      "rows": 1201,
+      "feature_parity": true
+    },
+    {
+      "symbol": "xyz:BRENTOIL",
+      "timeframe": "1D",
+      "rows": 208,
+      "feature_parity": true
+    },
+    {
+      "symbol": "xyz:BRENTOIL",
+      "timeframe": "4H",
+      "rows": 1201,
+      "feature_parity": true
+    },
+    {
+      "symbol": "xyz:BRENTOIL",
+      "timeframe": "1H",
+      "rows": 1201,
+      "feature_parity": true
+    },
+    {
+      "symbol": "xyz:BRENTOIL",
+      "timeframe": "15m",
+      "rows": 1201,
+      "feature_parity": true
+    },
+    {
+      "symbol": "xyz:BRENTOIL",
+      "timeframe": "5m",
+      "rows": 1201,
+      "feature_parity": true
+    }
+  ],
+  "checked_at_utc": "2026-09-27T19:24:58.746314+00:00",
+  "freshness": {
+    "1D": {
+      "series": 37,
+      "oldest_fetch_age_at_publication_seconds": 404.581479,
+      "missing_current": 0,
+      "provider_gap_count": 0
+    },
+    "4H": {
+      "series": 37,
+      "oldest_fetch_age_at_publication_seconds": 268.123935,
+      "missing_current": 0,
+      "provider_gap_count": 0
+    },
+    "1H": {
+      "series": 37,
+      "oldest_fetch_age_at_publication_seconds": 189.865613,
+      "missing_current": 0,
+      "provider_gap_count": 0
+    },
+    "15m": {
+      "series": 37,
+      "oldest_fetch_age_at_publication_seconds": 133.178623,
+      "missing_current": 0,
+      "provider_gap_count": 0
+    },
+    "5m": {
+      "series": 37,
+      "oldest_fetch_age_at_publication_seconds": 83.869914,
+      "missing_current": 0,
+      "provider_gap_count": 0
+    }
+  },
+  "byte_count_matches": true
+}

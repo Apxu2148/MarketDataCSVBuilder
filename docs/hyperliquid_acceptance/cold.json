@@ -1,0 +1,78 @@
+{
+  "profile": "intraday_hyperliquid",
+  "snapshot_id": "20260927T140210.586174Z_cb6a2b60",
+  "started_at_utc": "2026-09-27T14:02:10.586174+00:00",
+  "completed_at_utc": "2026-09-27T14:23:37.597713+00:00",
+  "resumed_from_snapshot": null,
+  "reused_series_count": 0,
+  "resume_rejections": [],
+  "config_summary": {
+    "cache_enabled": true,
+    "refresh_cache": false,
+    "concurrency": 4,
+    "requests_per_second": 5,
+    "feature_workers": 4,
+    "use_system_proxy": false,
+    "max_retries": 4,
+    "request_timeout": 30
+  },
+  "counts": {
+    "discovered": 328,
+    "eligible": 36,
+    "rejected_by_liquidity": 292,
+    "ready_symbols": 36,
+    "partial_symbols": 0,
+    "failed_symbols": 0,
+    "successful_series": 180,
+    "partial_series": 0,
+    "failed_series": 0
+  },
+  "counts_by_timeframe": {
+    "1D": {
+      "READY": 36
+    },
+    "4H": {
+      "READY": 36
+    },
+    "1H": {
+      "READY": 36
+    },
+    "15m": {
+      "READY": 36
+    },
+    "5m": {
+      "READY": 36
+    }
+  },
+  "failures": [],
+  "elapsed_seconds": {
+    "discovery": 61.17962469998747,
+    "ticker_snapshot": 45.60674809999182,
+    "instrument_metadata": 15.572876599995652,
+    "history_download": 676.8827569000423,
+    "history_download_by_timeframe": {
+      "1D": 131.56444489999558,
+      "4H": 134.76873260000139,
+      "1H": 134.3303591000149,
+      "15m": 137.13834040000802,
+      "5m": 139.0808799000224
+    },
+    "final_refresh": 406.8373533000122,
+    "feature_calculation": 138.72784659999888,
+    "export": 21.61628129996825,
+    "validation": 3.3156248000159394,
+    "total": 1287.016291499982,
+    "final_refresh_network_worker_seconds": 1220.949967799912,
+    "final_refresh_feature_worker_seconds": 168.60016550016007,
+    "publication": 0.00045289998524822295
+  },
+  "rate_limit_wait_seconds": 3462.376,
+  "http_429_count": 0,
+  "requests_sent": 478,
+  "estimated_api_weight": 16728,
+  "waiting_threads": 0,
+  "retry_count": 3,
+  "rate_limit_events": 0,
+  "book_errors": [],
+  "snapshot_bytes": 141006995
+}
