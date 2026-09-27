@@ -2,6 +2,13 @@
 
 This repository is one CSV builder with APX (daily MOEX, Bybit, Hyperliquid) and INTRADAY (public Bybit Linear USDT Perpetual) profiles.
 
+- The third profile is `intraday_hyperliquid`: public native + all HIP-3 perpetual DEXes,
+  separate `config_intraday_hyperliquid.toml`, `output/intraday_hyperliquid` and
+  `data/cache/intraday_hyperliquid`. Keep APX and Bybit defaults/config/data intact.
+  Share the INTRADAY feature engine and publication workflow; never fabricate
+  unavailable candle turnover, constant tick size, last trade or book top. Preserve
+  native DEX/symbol and metadata collateral identity. No production TOP-N.
+
 - Reference projects are `C:\Python\MOEXPortfolioBuilder`, `C:\Python\BybitPortfolioBuilder`, `C:\Python\HyperliquidPortfolioBuilder`, and `C:\Python\MarketDataVault`; treat all four as strictly read-only.
 - Use Python 3.11 and install dependencies only into this project's `.venv` via `setup.bat` or `.venv\Scripts\python.exe -m pip`. Legacy `run.bat` also supports the existing `venv`.
 - Never install packages globally and never perform destructive or state-changing Git/GitHub operations without an explicit user command.

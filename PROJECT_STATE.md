@@ -220,3 +220,19 @@ On the local Windows environment where the production snapshot is generated, run
   if unavailable; USDC is explicitly the USD-equivalent numeraire. Recheck pending.
 - Next: finalize acceptance tests/docs, live smoke and full/repeated runs in worktree.
   No integration yet; original project remains operational.
+
+## Hyperliquid stage 3 — acceptance coverage and consumer contract
+
+- Live smoke succeeded: ARB (native), io:SNDK and xyz:BRENTOIL, all five timeframes,
+  15/15 READY, zero failures. Snapshot 20260927T135809.331667Z_1d508125;
+  178.6 s, 105 requests, 2639 weight, 213.203 cumulative worker wait, zero retries/429.
+- Extended pagination explicitly traverses sparse/empty windows. Hyperliquid uses
+  its 5000-bar page capacity; Bybit retains its 1000-bar pagination.
+- Added observed collateral FX threshold test, sparse paging, nullable candle
+  turnover, exact shared indicator parity, cache corruption/missing-range repair,
+  publication/report rollback and profile/config isolation tests.
+- Added consumer instructions, README usage and minimal AGENTS addition.
+- Added scripts/accept_hyperliquid.py; --smoke uses isolated nested output,
+  ordinary cold/warm acceptance always uses the complete eligible universe.
+- Publication metrics and final-refresh worker timings are separate. No limiter
+  algorithm changes. Full/repeated live acceptance and final integration remain pending.

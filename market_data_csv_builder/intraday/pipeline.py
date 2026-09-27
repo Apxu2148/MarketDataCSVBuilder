@@ -69,6 +69,8 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
     timings = dict(discovery=0.0, ticker_snapshot=0.0, instrument_metadata=0.0,
         history_download=0.0, history_download_by_timeframe={}, final_refresh=0.0,
         feature_calculation=0.0, export=0.0, validation=0.0, total=0.0)
+    if hyperliquid:
+        timings.update(final_refresh_network_worker_seconds=0.0, final_refresh_feature_worker_seconds=0.0, publication=0.0)
     failures = []
     store_class = CandleStore
     if hyperliquid:
@@ -124,6 +126,9 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
         eligibility_at = now_iso()
         timings["ticker_snapshot"] = time.perf_counter() - stage
         eligible = select(instruments, initial, threshold)
+        paths = [safe_path_component(item["symbol"]).casefold() for item in eligible]
+        if len(set(paths)) != len(paths):
+            raise ValueError("Instrument filenames collide on Windows")
         if hyperliquid:
             client.selected = [item["symbol"] for item in eligible]
         timings["discovery"] = timings["instrument_metadata"] + timings["ticker_snapshot"]
@@ -202,7 +207,10 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
                 try:
                     result = future.result()
                     if result is not None:
-                        frame, refreshed[key], _, _ = result
+                        frame, refreshed[key], network_seconds, feature_seconds = result
+                        if hyperliquid:
+                            timings["final_refresh_network_worker_seconds"] += network_seconds
+                            timings["final_refresh_feature_worker_seconds"] += feature_seconds
                 except CancellationRequested:
                     raise
                 except Exception as exc:
@@ -335,7 +343,7 @@ def _run(config, root, token, client, refresh_cache, no_cache, resume_staging=No
             report["snapshot_bytes"] = sum(path.stat().st_size for path in staging.rglob("*") if path.is_file())
             write_json(staging / "run_report.json", report)
         token.raise_if_requested()
-        publish(staging, output, snapshot)
+        publish(staging, output, snapshot, report=report if hyperliquid else None)
         print(f"INTRADAY published {snapshot} in {timings['total']:.1f}s", flush=True)
         return report
     except BaseException as exc:

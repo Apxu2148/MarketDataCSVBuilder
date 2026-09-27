@@ -184,3 +184,55 @@ the current eligible set. A new snapshot ID records `resumed_from_snapshot` and
 `reused_series_count`, avoiding mixing old eligibility timestamps with new market data.
 The source staging is preserved. Remove a stale `.run.lock` only after confirming that
 the prior INTRADAY process is no longer running.
+
+## Hyperliquid INTRADAY
+
+Four launchers share this codebase: `run.bat` retains the original default APX
+behavior; `run_apx.bat` explicitly selects APX; `run_intraday.bat` selects Bybit;
+`run_intraday_hyperliquid.bat` selects Hyperliquid native and all discovered HIP-3 DEXes.
+The first two profiles retain independent sections in `config.toml`. Hyperliquid
+INTRADAY reads `config_intraday_hyperliquid.toml`, never the local APX/Bybit settings.
+An explicit `--config` overrides that profile's default file.
+
+```bat
+run_intraday_hyperliquid.bat
+run_intraday_hyperliquid.bat --refresh-cache
+run_intraday_hyperliquid.bat --resume-staging output/intraday_hyperliquid/.staging/SNAPSHOT_ID
+```
+
+Output: `output/intraday_hyperliquid/current/`. Completed-candle cache:
+`data/cache/intraday_hyperliquid/v1/hyperliquid/perpetual/`. Lock and staging are
+profile-specific, so Bybit may run independently. No environment or generated data
+is shared between development worktrees. No account, API key, trading or Drive connection.
+
+Configure `min_turnover24h_usd` (default 10M), timeframes, history depth, network
+concurrency, CPU feature_workers, timeout/retries and rate_limit_safety_fraction.
+The full live eligible set is exported, without TOP-N; `--limit`/`--as-of` are rejected.
+USDC is the explicit USD-equivalent numeraire. Other collateral uses an observed
+spot/USDC mid with its conversion rate exported; missing conversion aborts eligibility.
+Source turnover and actual quote/settlement currencies remain intact.
+
+The unchanged shared engine supplies all 29 features, ATR(14), and 1/5/20-bar returns.
+Five timeframes export up to 1200 closed plus current; 999 earlier candles supply
+warm-up. Hyperliquid exposes at most the latest 5000 candles; unavailable older
+history is never synthesized. Missing candle turnover is N/A, unlike the historical
+APX adapter's documented approximation. Unknown ticker/specification fields also use
+N/A. Native DEX/symbol, collateral identity, oracle, actual book top and variable
+price-precision rules are explicit. Short histories and gaps remain visible.
+
+Read [Hyperliquid consumer contract](docs/APX_HYPERLIQUID_INTRADAY_CONSUMER.md) for
+freshness, off-hours data, identity, Bybit mapping and whole-folder Drive transfer.
+Each successful current is standalone. Previous snapshots are retained; failed
+discovery, invalid snapshots and interrupted downloads do not replace current.
+
+Developer acceptance (inside the development worktree):
+`python scripts/accept_hyperliquid.py --smoke`, then
+`python scripts/accept_hyperliquid.py --label cold` and `--label warm`.
+Smoke deliberately selects one liquid instrument on native and two HIP-3 DEXes in
+a separate output root; production runs always use the entire eligible universe.
+Reports and logs remain in local output; measured delivery evidence is recorded in PROJECT_STATE.md.
+
+Official contracts: [public info/candles](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint),
+[perpetual metadata/contexts](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint/perpetuals),
+[price and size precision](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/tick-and-lot-size),
+[weighted limits](https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/rate-limits-and-user-limits).

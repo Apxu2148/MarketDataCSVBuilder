@@ -105,7 +105,7 @@ def test_cold_incremental_corrupt_cache_and_nullable_turnover(tmp_path, fixed, t
     client.calls.clear()
     repaired, _ = store.fetch('xyz:BTC', tf, 1200)
     pd.testing.assert_frame_equal(cold, repaired)
-    assert len(client.calls) == 3
+    assert len(client.calls) == 1
     saved = json.loads(path.read_text()); del saved['rows'][100]
     path.write_text(json.dumps(saved))
     repaired, _ = store.fetch('xyz:BTC', tf, 1200)
@@ -178,3 +178,44 @@ def test_independent_config_and_retention_limit():
     assert config.intraday_hyperliquid.source == 'hyperliquid'
     with pytest.raises(ValueError, match='5000'):
         validate_config(replace(config, intraday_hyperliquid=replace(config.intraday_hyperliquid, closed_bars=5000)))
+
+
+def test_gap_pagination_does_not_stop_on_short_page(tmp_path, fixed):
+    class SparseClient(FixtureClient):
+        def post(self, body):
+            result = super().post(body)
+            if body['type'] == 'candleSnapshot':
+                return [row for row in result if row['t']//300000 % 7 != 0]
+            return result
+    store = HyperliquidCandleStore(tmp_path, SparseClient(), CancellationToken(), enabled=False)
+    store.page_limit = 100
+    frame, _ = store.fetch('BTC', '5m', 1200)
+    boundary = FIXED*1000//300000*300000
+    assert frame.iloc[0].timestamp.value//1000000 <= boundary - 2198*300000
+    assert len(frame) > 1800
+    assert not frame.timestamp.duplicated().any()
+
+
+def test_publication_report_failure_rolls_back(tmp_path, monkeypatch):
+    from market_data_csv_builder.intraday import export
+    current = tmp_path/'current'; current.mkdir(); (current/'old').write_text('keep')
+    staging = tmp_path/'staging'; staging.mkdir(); (staging/'new').write_text('new')
+    def fail(*args):
+        raise OSError('report write failure')
+    monkeypatch.setattr(export, 'write_json', fail)
+    with pytest.raises(OSError):
+        export.publish(staging, tmp_path, 'test', report={'elapsed_seconds': {'total': 1}})
+    assert (current/'old').read_text() == 'keep'
+    assert (staging/'new').exists()
+
+
+def test_collateral_fx_threshold_uses_observed_rate():
+    class FxClient(FixtureClient):
+        def post(self, body):
+            result = super().post(body)
+            if body['type'] == 'spotMetaAndAssetCtxs':
+                result[1][0]['midPx'] = '0.98'
+            return result
+    client = FxClient(); items = client.instruments(); tickers = client.tickers()
+    assert tickers['other:BTC']['turnover24h_usd'] == 9800000
+    assert {x['symbol'] for x in eligible_hyperliquid(items, tickers, 10000000)} == {'BTC', 'xyz:BTC'}

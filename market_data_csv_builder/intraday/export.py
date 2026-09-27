@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import math
+import time
 from pathlib import Path
 
 import pandas as pd
@@ -263,16 +264,31 @@ def validate_snapshot(directory: Path):
         raise ValueError("Report counts mismatch")
 
 
-def publish(staging, output_root, snapshot):
+def publish(staging, output_root, snapshot, report=None):
     """Validated promotion with rollback; retain old snapshot for recovery."""
     current = output_root / "current"
+    started = time.perf_counter()
     previous = output_root / ("previous_" + snapshot)
     moved = current.exists()
     if moved:
         current.replace(previous)
     try:
         staging.replace(current)
+        if report is not None:
+            elapsed = time.perf_counter() - started
+            report["elapsed_seconds"]["publication"] = elapsed
+            report["elapsed_seconds"]["total"] += elapsed
+            temporary = current / "run_report.json.tmp"
+            other_bytes = sum(path.stat().st_size for path in current.rglob("*")
+                              if path.is_file() and path.name != "run_report.json")
+            for _ in range(4):
+                report["snapshot_bytes"] = other_bytes + len(json.dumps(report,
+                    indent=2, sort_keys=True, ensure_ascii=False, allow_nan=False).encode("utf-8"))
+            write_json(temporary, report)
+            temporary.replace(current / "run_report.json")
     except BaseException:
+        if current.exists() and not staging.exists():
+            current.replace(staging)
         if moved:
             previous.replace(current)
         raise

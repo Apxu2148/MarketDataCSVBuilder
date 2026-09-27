@@ -10,6 +10,7 @@ UNIVERSE_COLUMNS = tuple(c for c in BYBIT_COLUMNS if c != "liquidity_threshold_u
 def universe_row(item, ticker, initial, snapshot, threshold, metadata_at, ticker_at, eligibility_at):
     row = bybit_row(item, ticker, initial, snapshot, threshold, metadata_at, ticker_at, eligibility_at)
     row.pop("liquidity_threshold_usdt")
+    row["ticker_fetched_at_utc"] = row["funding_fetched_at_utc"] = ticker.get("context_fetched_at_utc")
     row.update(source="hyperliquid", dex=item["dex"], native_symbol=item["symbol"],
         collateral_token=item["collateral_token"], liquidity_threshold_usd=threshold,
         sz_decimals=item["sz_decimals"], max_price_decimals=item["max_price_decimals"],

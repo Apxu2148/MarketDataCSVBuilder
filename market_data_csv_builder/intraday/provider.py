@@ -167,6 +167,7 @@ class CandleStore:
     """Versioned, completed-only cache, independent of APX's HTTP cache."""
     cache_namespace = "intraday/v1/bybit/linear_perpetual"
     nullable_turnover = False
+    page_limit = 1000
 
     def __init__(self, root: Path, client, token, enabled=True, refresh=False):
         self.directory = root / "data/cache" / self.cache_namespace
@@ -191,7 +192,7 @@ class CandleStore:
                 saved = json.loads(path.read_text(encoding="utf-8"))
                 if saved["symbol"] == symbol and saved["timeframe"] == timeframe:
                     cached = saved["rows"]
-            except (ValueError, KeyError, OSError):
+            except (ValueError, KeyError, TypeError, OSError):
                 logger.warning("Ignoring invalid intraday cache %s", path)
         rows = {}
         try:
@@ -217,9 +218,10 @@ class CandleStore:
             end = min(cutoff, last + duration - 1)
             while end >= first:
                 self.token.raise_if_requested()
-                batch = self.client.get("kline", symbol=symbol, interval=interval,
-                    start=first, end=end, limit=1000)["list"]
-                if not batch:
+                response = self.client.get("kline", symbol=symbol, interval=interval,
+                    start=first, end=end, limit=self.page_limit)
+                batch = response["list"]
+                if not batch and "next_end" not in response:
                     break
                 stamps = []
                 for row in batch:
@@ -228,13 +230,15 @@ class CandleStore:
                     ts = int(row[0])
                     if ts < first or ts > end or ts % duration:
                         raise ValueError("Kline outside requested interval or grid")
+                    if ts in stamps:
+                        raise ValueError("Duplicate candle in API response")
                     rows[ts] = row[:7]
                     stamps.append(ts)
-                next_end = min(stamps) - 1
+                next_end = response["next_end"] if "next_end" in response else min(stamps) - 1
                 if next_end >= end:
                     raise ValueError("Kline pagination did not advance")
                 end = next_end
-                if len(batch) < 1000:
+                if len(batch) < self.page_limit and "next_end" not in response:
                     break
         frame = self._frame(rows, duration, cutoff)
         if frame.empty:

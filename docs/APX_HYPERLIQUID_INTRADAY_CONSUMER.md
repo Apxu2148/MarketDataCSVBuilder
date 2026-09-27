@@ -26,9 +26,13 @@ contains oraclePx and oracle_price makes that meaning explicit. mid_price is not
 last_price. Best bid/ask come only from l2Book, never from impactPxs; sizes are base
 quantity. Book and context timestamps are independent; missing book is N/A.
 
-Eligibility is fixed at initial rolling dayNtlVlm >= configured threshold, without
+Eligibility is fixed at initial rolling dayNtlVlm converted to USD-equivalent >= configured threshold, without
 TOP-N. Final context turnover can differ. Candle volume is base quantity; candle
 turnover is N/A unless actually supplied by the API, never close*volume.
+USDC is the explicit USD-equivalent numeraire (rate 1); other collateral uses the
+observed spot/USDC mid. Both initial and final conversion rates and converted
+turnover are exported. This is a USDC-based USD-equivalent convention, not a claim
+of an independently observed fiat USD/USDC peg. Unknown conversion aborts selection.
 
 Timeframes: 1D, 4H, 1H, 15m, 5m. Requested export is 1200 completed bars plus
 one current PROVISIONAL; short histories remain usable and explicitly counted.

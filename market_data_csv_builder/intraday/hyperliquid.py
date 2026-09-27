@@ -22,6 +22,7 @@ INTERVALS = {"D": "1d", "240": "4h", "60": "1h", "15": "15m", "5": "5m"}
 class HyperliquidCandleStore(CandleStore):
     cache_namespace = "intraday_hyperliquid/v1/hyperliquid/perpetual"
     nullable_turnover = True
+    page_limit = 5000
 
 
 class HyperliquidPublicClient:
@@ -177,7 +178,7 @@ class HyperliquidPublicClient:
         if path != "kline":
             raise ValueError("Unsupported candle operation")
         duration = next(ms for interval, ms in TIMEFRAMES.values() if interval == params["interval"])
-        # At most 1000 requested bars matches shared backward pagination.
+        # Explicit window boundary keeps pagination correct even across empty ranges.
         first = max(params["start"], params["end"] // duration * duration - (params["limit"] - 1) * duration)
         interval = INTERVALS[params["interval"]]
         payload = self.post(dict(type="candleSnapshot", req=dict(coin=params["symbol"],
@@ -189,7 +190,7 @@ class HyperliquidPublicClient:
             if row.get("s") != params["symbol"] or row.get("i") != interval:
                 raise ValueError("Candle identity mismatch")
             rows.append([row["t"], row["o"], row["h"], row["l"], row["c"], row["v"], row.get("q")])
-        return {"list": rows}
+        return {"list": rows, "next_end": first - 1}
 
 
 def eligible_hyperliquid(instruments, tickers, threshold):
